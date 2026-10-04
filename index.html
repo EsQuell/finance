@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Мои финансы</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#2f6fed">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--tx:#1d2330;--mut:#6b7385;--bd:#e2e5ec;--ac:#2f6fed;--in:#18a058;--out:#d03050}
+@media (prefers-color-scheme:dark){:root{--bg:#14161b;--card:#1d2027;--tx:#e8eaf0;--mut:#9aa1b2;--bd:#2c3039;--ac:#5b8cff;--in:#3ec97a;--out:#ff6b81}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--bd);z-index:5}
+nav{display:flex;gap:4px;overflow-x:auto;padding:8px 16px;max-width:1100px;margin:auto}
+nav button{background:none;border:0;padding:8px 12px;border-radius:8px;color:var(--mut);cursor:pointer;white-space:nowrap;font:inherit}
+nav button.on{background:var(--ac);color:#fff}
+main{max-width:1100px;margin:auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px}
+h2{margin:0 0 12px;font-size:18px}h3{margin:0 0 8px;font-size:15px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:end}.row>*{flex:1 1 140px}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}
+input,select{font:inherit;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);width:100%}
+button.b{font:inherit;padding:8px 14px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer;flex:0 0 auto}
+button.s{background:none;border:1px solid var(--bd);color:var(--tx);padding:3px 8px;border-radius:6px;cursor:pointer;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:6px 4px;border-bottom:1px solid var(--bd);text-align:left}
+th{color:var(--mut);font-weight:500;font-size:12px}.r{text-align:right}
+.in{color:var(--in)}.out{color:var(--out)}.mut{color:var(--mut);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.tile{border:1px solid var(--bd);border-radius:10px;padding:12px}.tile b{font-size:20px;display:block}
+.bar{height:8px;background:var(--bd);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
+.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<header><nav id="nav"></nav></header>
+<main id="app"></main>
+<script>
+const TABS=[['ops','Операции'],['acc','Счета'],['stat','Статистика'],['sal','Зарплата'],['obl','Платежи'],['goal','Накопления'],['set','Настройки']];
+const KEY='fin-app-v1';
+const def={accounts:[{id:'a1',name:'Основная карта',type:'card',start:0,startDate:today()}],
+ cats:{expense:['Продукты','Кафе','Транспорт','Жильё','Связь','Подписки','Кредиты','Здоровье','Одежда','Развлечения','Прочее'],income:['Зарплата','Подработка','Проценты','Кэшбэк','Подарки','Прочее']},
+ tx:[],obl:[],goals:[],tab:'ops'};
+let S;try{S=JSON.parse(localStorage.getItem(KEY))||def}catch(e){S=def}
+S=Object.assign(structuredClone(def),S);
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function today(){return new Date().toISOString().slice(0,10)}
+function uid(){return Math.random().toString(36).slice(2,10)}
+const fmt=n=>(Math.round(n*100)/100).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₽';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const acc=id=>S.accounts.find(a=>a.id===id);
+const opts=(arr,sel)=>arr.map(([v,t])=>`<option value="${esc(v)}" ${v===sel?'selected':''}>${esc(t)}</option>`).join('');
+const accOpts=sel=>opts(S.accounts.map(a=>[a.id,a.name]),sel);
+const val=id=>document.getElementById(id).value;
+
+// Баланс счёта = стартовый остаток + все операции. Никогда не обнуляется по месяцам.
+function balance(id,upTo){const a=acc(id);let b=+a.start||0;
+ for(const t of S.tx){if(upTo&&t.date>upTo)continue;
+  if(t.type==='income'&&t.acc===id)b+=t.sum;
+  if(t.type==='expense'&&t.acc===id)b-=t.sum;
+  if(t.type==='transfer'){if(t.acc===id)b-=t.sum;if(t.to===id)b+=t.sum}}
+ return b}
+
+// Автоначисление процентов по вкладам/накопительным счетам
+function accrue(){const now=today();
+ for(const a of S.accounts){if(a.type!=='deposit'||!(+a.rate))continue;
+  let last=a.lastAccrual||a.startDate||now;
+  while(true){const d=new Date(last);d.setMonth(d.getMonth()+1);const nx=d.toISOString().slice(0,10);if(nx>now)break;
+   const bal=balance(a.id,last),r=a.rate/100,days=(new Date(nx)-new Date(last))/864e5;
+   const int=a.cap==='daily'?bal*(Math.pow(1+r/365,days)-1):bal*r/12;
+   if(int>0.004)S.tx.push({id:uid(),type:'income',date:nx,sum:Math.round(int*100)/100,acc:a.id,cat:'Проценты',note:'Автоначисление '+a.rate+'%',auto:1});
+   last=nx}
+  a.lastAccrual=last}
+ save()}
+
+function nav(){document.getElementById('nav').innerHTML=TABS.map(([k,t])=>`<button class="${S.tab===k?'on':''}" onclick="go('${k}')">${t}</button>`).join('')}
+function go(t){S.tab=t;save();render()}
+function render(){nav();document.getElementById('app').innerHTML=V[S.tab]()}
+
+let F={from:today().slice(0,8)+'01',to:'',type:'',cat:'',acc:''};
+const V={};
+V.ops=()=>{const list=S.tx.filter(t=>(!F.from||t.date>=F.from)&&(!F.to||t.date<=F.to)&&(!F.type||t.type===F.type)&&(!F.cat||t.cat===F.cat)&&(!F.acc||t.acc===F.acc||t.to===F.acc)).sort((a,b)=>b.date.localeCompare(a.date));
+ const inc=list.filter(t=>t.type==='income').reduce((s,t)=>s+t.sum,0),exp=list.filter(t=>t.type==='expense').reduce((s,t)=>s+t.sum,0);
+ const allCats=[...new Set([...S.cats.expense,...S.cats.income])];
+ return `<div class="card"><h2>Новая операция</h2><div class="row">
+ <label>Тип<select id="tType" onchange="catFill()">${opts([['expense','Расход'],['income','Доход'],['transfer','Перевод']],'expense')}</select></label>
+ <label>Сумма<input id="tSum" type="number" step="0.01" inputmode="decimal"></label>
+ <label>Дата<input id="tDate" type="date" value="${today()}"></label>
+ <label>Счёт<select id="tAcc">${accOpts()}</select></label>
+ <label id="tCatL">Категория<select id="tCat">${opts(S.cats.expense.map(c=>[c,c]))}</select></label>
+ <label id="tToL" style="display:none">На счёт<select id="tTo">${accOpts()}</select></label>
+ <label>Комментарий<input id="tNote"></label>
+ <button class="b" onclick="addTx()">Добавить</button></div></div>
+ <div class="card"><h2>Журнал</h2><div class="row">
+ <label>С<input type="date" value="${F.from}" onchange="F.from=this.value;render()"></label>
+ <label>По<input type="date" value="${F.to}" onchange="F.to=this.value;render()"></label>
+ <label>Тип<select onchange="F.type=this.value;render()">${opts([['','Все'],['expense','Расходы'],['income','Доходы'],['transfer','Переводы']],F.type)}</select></label>
+ <label>Категория<select onchange="F.cat=this.value;render()">${opts([['','Все'],...allCats.map(c=>[c,c])],F.cat)}</select></label>
+ <label>Счёт<select onchange="F.acc=this.value;render()">${opts([['','Все'],...S.accounts.map(a=>[a.id,a.name])],F.acc)}</select></label></div>
+ <p>Доходы: <b class="in">${fmt(inc)}</b> · Расходы: <b class="out">${fmt(exp)}</b> · Итог: <b>${fmt(inc-exp)}</b></p>
+ <div class="scroll"><table><tr><th>Дата</th><th>Категория</th><th>Счёт</th><th>Комментарий</th><th class="r">Сумма</th><th></th></tr>
+ ${list.map(t=>`<tr><td>${t.date}</td><td>${t.type==='transfer'?'Перевод → '+esc(acc(t.to)?.name):esc(t.cat)}</td><td>${esc(acc(t.acc)?.name)}</td><td class="mut">${esc(t.note)}</td>
+ <td class="r ${t.type==='income'?'in':t.type==='expense'?'out':''}">${t.type==='expense'?'−':t.type==='income'?'+':''}${fmt(t.sum)}</td><td><button class="s" onclick="delTx('${t.id}')">✕</button></td></tr>`).join('')||'<tr><td colspan=6 class="mut">Нет операций</td></tr>'}
+ </table></div></div>`};
+function catFill(){const t=val('tType');document.getElementById('tCatL').style.display=t==='transfer'?'none':'';document.getElementById('tToL').style.display=t==='transfer'?'':'none';
+ if(t!=='transfer')document.getElementById('tCat').innerHTML=opts(S.cats[t].map(c=>[c,c]))}
+function addTx(){const sum=+val('tSum');if(!(sum>0))return alert('Введите сумму');const type=val('tType');
+ if(type==='transfer'&&val('tAcc')===val('tTo'))return alert('Выберите разные счета');
+ S.tx.push({id:uid(),type,sum,date:val('tDate'),acc:val('tAcc'),to:type==='transfer'?val('tTo'):undefined,cat:type==='transfer'?'':val('tCat'),note:val('tNote')});save();render()}
+function delTx(id){if(confirm('Удалить операцию?')){S.tx=S.tx.filter(t=>t.id!==id);save();render()}}
+
+const TYPES={card:'Карта',cash:'Наличные',deposit:'Вклад / накопительный',credit:'Кредитка'};
+V.acc=()=>{const total=S.accounts.reduce((s,a)=>s+balance(a.id),0);
+ return `<div class="card"><h2>Счета · всего ${fmt(total)}</h2><div class="grid">${S.accounts.map(a=>{const b=balance(a.id);
+ const m=today().slice(0,8)+'01',bm=balance(a.id,new Date(new Date(m)-864e5).toISOString().slice(0,10));
+ return `<div class="tile"><span class="mut">${TYPES[a.type]}${a.type==='deposit'?' · '+a.rate+'% ('+(a.cap==='daily'?'ежедн.':'ежемес.')+')':''}</span>
+ <div>${esc(a.name)}</div><b class="${b<0?'out':''}">${fmt(b)}</b><span class="mut">на начало месяца: ${fmt(bm)}</span><br>
+ <button class="s" onclick="editAcc('${a.id}')">Изменить</button> <button class="s" onclick="delAcc('${a.id}')">Удалить</button></div>`}).join('')}</div></div>
+ <div class="card"><h2>Добавить счёт</h2><div class="row">
+ <label>Название<input id="aName"></label><label>Тип<select id="aType">${opts(Object.entries(TYPES))}</select></label>
+ <label>Текущий остаток<input id="aStart" type="number" step="0.01"></label><label>На дату<input id="aDate" type="date" value="${today()}"></label>
+ <label>Ставка, % годовых<input id="aRate" type="number" step="0.01" placeholder="для вкладов"></label>
+ <label>Капитализация<select id="aCap">${opts([['monthly','Ежемесячно'],['daily','Ежедневно']])}</select></label>
+ <button class="b" onclick="addAcc()">Добавить</button></div>
+ <p class="mut">Остаток переносится из месяца в месяц автоматически. По вкладам проценты начисляются сами раз в месяц операцией «Проценты».</p></div>`};
+function addAcc(){const name=val('aName').trim();if(!name)return alert('Название?');const d=val('aDate');
+ S.accounts.push({id:uid(),name,type:val('aType'),start:+val('aStart')||0,startDate:d,rate:+val('aRate')||0,cap:val('aCap'),lastAccrual:d});accrue();render()}
+function editAcc(id){const a=acc(id);const n=prompt('Название',a.name);if(n===null)return;a.name=n||a.name;
+ const fact=prompt('Фактический остаток сейчас (для сверки, пусто — не менять)',balance(id).toFixed(2));
+ if(fact!==null&&fact!==''&&Math.abs(+fact-balance(id))>0.004){a.start+= +fact-balance(id)}
+ if(a.type==='deposit'){const r=prompt('Ставка % годовых',a.rate);if(r!==null)a.rate=+r}save();render()}
+function delAcc(id){if(S.tx.some(t=>t.acc===id||t.to===id))return alert('По счёту есть операции');if(confirm('Удалить счёт?')){S.accounts=S.accounts.filter(a=>a.id!==id);save();render()}}
+
+let SF={from:today().slice(0,5)+'01-01',to:today(),acc:''};
+V.stat=()=>{const L=S.tx.filter(t=>t.date>=SF.from&&t.date<=SF.to&&(!SF.acc||t.acc===SF.acc));
+ const by=type=>{const m={};L.filter(t=>t.type===type).forEach(t=>m[t.cat]=(m[t.cat]||0)+t.sum);return Object.entries(m).sort((a,b)=>b[1]-a[1])};
+ const months={};L.forEach(t=>{if(t.type==='transfer')return;const k=t.date.slice(0,7);months[k]=months[k]||{i:0,e:0};months[k][t.type==='income'?'i':'e']+=t.sum});
+ const block=(title,arr,cls)=>{const tot=arr.reduce((s,x)=>s+x[1],0);return `<div class="card"><h3>${title}: <span class="${cls}">${fmt(tot)}</span></h3>
+ ${arr.map(([c,v])=>`<div style="margin:6px 0"><div style="display:flex;justify-content:space-between"><span>${esc(c)}</span><span>${fmt(v)} · ${(v/tot*100).toFixed(1)}%</span></div><div class="bar"><i style="width:${v/tot*100}%"></i></div></div>`).join('')||'<span class="mut">Нет данных</span>'}</div>`};
+ return `<div class="card"><div class="row"><label>С<input type="date" value="${SF.from}" onchange="SF.from=this.value;render()"></label>
+ <label>По<input type="date" value="${SF.to}" onchange="SF.to=this.value;render()"></label>
+ <label>Счёт<select onchange="SF.acc=this.value;render()">${opts([['','Все'],...S.accounts.map(a=>[a.id,a.name])],SF.acc)}</select></label></div></div>
+ ${block('Расходы по категориям',by('expense'),'out')}${block('Доходы по категориям',by('income'),'in')}
+ <div class="card"><h3>По месяцам</h3><div class="scroll"><table><tr><th>Месяц</th><th class="r">Доходы</th><th class="r">Расходы</th><th class="r">Итог</th></tr>
+ ${Object.entries(months).sort().reverse().map(([k,v])=>`<tr><td>${k}</td><td class="r in">${fmt(v.i)}</td><td class="r out">${fmt(v.e)}</td><td class="r">${fmt(v.i-v.e)}</td></tr>`).join('')}</table></div></div>`};
+
+const OT={sub:'Подписка',rent:'Аренда',loan:'Кредит',util:'Коммуналка',other:'Другое'};
+V.obl=()=>{const t=new Date().getDate();
+ return `<div class="card"><h2>Обязательные платежи · ${fmt(S.obl.reduce((s,o)=>s+o.sum,0))} в месяц</h2><div class="scroll"><table>
+ <tr><th>Название</th><th>Тип</th><th>День</th><th>Со счёта</th><th>Осталось</th><th class="r">Сумма</th><th></th></tr>
+ ${S.obl.slice().sort((a,b)=>a.day-b.day).map(o=>{const left=o.day>=t?o.day-t:o.day+30-t;return `<tr><td>${esc(o.name)}</td><td>${OT[o.type]}</td><td>${o.day}</td><td>${esc(acc(o.acc)?.name)}</td>
+ <td class="${left<=3?'out':'mut'}">${left===0?'сегодня':left+' дн.'}${o.type==='loan'&&o.until?' · до '+o.until:''}</td><td class="r">${fmt(o.sum)}</td>
+ <td><button class="s" onclick="payObl('${o.id}')">Оплачено</button> <button class="s" onclick="delObl('${o.id}')">✕</button></td></tr>`}).join('')||'<tr><td colspan=7 class="mut">Пока пусто</td></tr>'}</table></div></div>
+ <div class="card"><h2>Добавить платёж</h2><div class="row"><label>Название<input id="oName"></label>
+ <label>Тип<select id="oType">${opts(Object.entries(OT))}</select></label><label>Сумма<input id="oSum" type="number" step="0.01"></label>
+ <label>День месяца<input id="oDay" type="number" min="1" max="31"></label><label>Со счёта<select id="oAcc">${accOpts()}</select></label>
+ <label>Кредит до (необяз.)<input id="oUntil" type="date"></label><button class="b" onclick="addObl()">Добавить</button></div></div>`};
+function addObl(){const sum=+val('oSum'),day=+val('oDay');if(!val('oName')||!(sum>0)||!(day>=1&&day<=31))return alert('Заполните название, сумму и день');
+ S.obl.push({id:uid(),name:val('oName'),type:val('oType'),sum,day,acc:val('oAcc'),until:val('oUntil')});save();render()}
+function delObl(id){if(confirm('Удалить платёж?')){S.obl=S.obl.filter(o=>o.id!==id);save();render()}}
+function payObl(id){const o=S.obl.find(x=>x.id===id);const cat={sub:'Подписки',rent:'Жильё',loan:'Кредиты',util:'Жильё'}[o.type]||'Прочее';
+ if(!S.cats.expense.includes(cat))S.cats.expense.push(cat);
+ S.tx.push({id:uid(),type:'expense',date:today(),sum:o.sum,acc:o.acc,cat,note:o.name});save();alert('Записано в расходы');render()}
+
+// Накопления: ежемесячный взнос с учётом процентов (аннуитет)
+function goalCalc(g){const a=g.acc&&acc(g.acc);const cur=a?balance(a.id):(+g.saved||0);
+ const rate=a&&a.type==='deposit'?a.rate/100:0;
+ const n=Math.max(1,Math.round((new Date(g.date)-new Date())/(864e5*30.44)));
+ const i=a?.cap==='daily'?Math.pow(1+rate/365,30.44)-1:rate/12;const g1=Math.pow(1+i,n);
+ const fvCur=cur*g1;const need=g.target-fvCur;
+ const pmt=need<=0?0:(i?need*i/(g1-1):need/n);
+ return {cur,n,pmt,interest:fvCur+pmt*n-cur-pmt*n+(i?pmt*((g1-1)/i-n):0),rate}}
+V.goal=()=>`<div class="card"><h2>Цели</h2><div class="grid">${S.goals.map(g=>{const c=goalCalc(g);const p=Math.min(100,c.cur/g.target*100);
+ return `<div class="tile"><div>${esc(g.name)}</div><b>${fmt(c.cur)} <span class="mut">из ${fmt(g.target)}</span></b><div class="bar"><i style="width:${p}%"></i></div>
+ <p>Откладывать: <b style="display:inline;font-size:16px">${fmt(c.pmt)}</b>/мес<br><span class="mut">${c.n} мес. до ${g.date} · ${g.acc?esc(acc(g.acc)?.name):'вручную'}${c.rate?' · проценты принесут ≈ '+fmt(c.interest):''}</span></p>
+ ${g.acc?'':`<button class="s" onclick="goalAdd('${g.id}')">+ внести</button> `}<button class="s" onclick="delGoal('${g.id}')">Удалить</button></div>`}).join('')||'<span class="mut">Целей пока нет</span>'}</div></div>
+ <div class="card"><h2>Новая цель</h2><div class="row"><label>Название<input id="gName"></label><label>Сумма цели<input id="gT" type="number"></label>
+ <label>К дате<input id="gD" type="date"></label>
+ <label>Где коплю<select id="gA">${opts([['','Отдельно / наличные (вручную)'],...S.accounts.map(a=>[a.id,a.name+(a.type==='deposit'?' ('+a.rate+'%)':'')])])}</select></label>
+ <button class="b" onclick="addGoal()">Добавить</button></div>
+ <p class="mut">Если копите на вкладе — выберите его счёт: текущая сумма берётся из баланса, а расчёт взноса учитывает ставку и капитализацию. Проценты зачисляются автоматически.</p></div>`;
+function addGoal(){const t=+val('gT'),d=val('gD');if(!val('gName')||!(t>0)||!d)return alert('Заполните все поля');S.goals.push({id:uid(),name:val('gName'),target:t,date:d,acc:val('gA'),saved:0});save();render()}
+function goalAdd(id){const g=S.goals.find(x=>x.id===id);const v=+prompt('Сколько внести?');if(v){g.saved=(+g.saved||0)+v;save();render()}}
+function delGoal(id){if(confirm('Удалить цель?')){S.goals=S.goals.filter(g=>g.id!==id);save();render()}}
+
+// Зарплата: распределение
+let SAL={sum:'',date:today(),next:'',acc:S.accounts[0]?.id};
+V.sal=()=>{if(!SAL.next){const d=new Date(SAL.date);d.setMonth(d.getMonth()+1);SAL.next=d.toISOString().slice(0,10)}
+ const sum=+SAL.sum||0;
+ // платежи, дни которых попадают в период до следующей зарплаты
+ const inPeriod=o=>{const s=new Date(SAL.date),e=new Date(SAL.next);for(let d=new Date(s);d<e;d.setDate(d.getDate()+1))if(d.getDate()===Math.min(o.day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()))return d.toISOString().slice(0,10);return null};
+ const obl=S.obl.filter(o=>!o.until||o.until>=SAL.date).map(o=>({...o,when:inPeriod(o)})).filter(o=>o.when);
+ const goals=S.goals.map(g=>({g,c:goalCalc(g)})).filter(x=>x.c.pmt>0);
+ const oSum=obl.reduce((s,o)=>s+o.sum,0),gSum=goals.reduce((s,x)=>s+x.c.pmt,0),free=sum-oSum-gSum;
+ const days=Math.max(1,(new Date(SAL.next)-new Date(SAL.date))/864e5);
+ const byAcc={};obl.forEach(o=>byAcc[o.acc]=(byAcc[o.acc]||0)+o.sum);goals.forEach(x=>{const k=x.g.acc||'_';byAcc[k]=(byAcc[k]||0)+x.c.pmt});
+ return `<div class="card"><h2>Расчёт зарплаты</h2><div class="row">
+ <label>Сумма<input type="number" value="${SAL.sum}" onchange="SAL.sum=this.value;render()"></label>
+ <label>Дата получения<input type="date" value="${SAL.date}" onchange="SAL.date=this.value;SAL.next='';render()"></label>
+ <label>Следующая зарплата<input type="date" value="${SAL.next}" onchange="SAL.next=this.value;render()"></label>
+ <label>На какой счёт пришла<select onchange="SAL.acc=this.value">${accOpts(SAL.acc)}</select></label>
+ <button class="b" onclick="salSave()">Записать доход</button></div></div>
+ ${sum?`<div class="card"><h3>1. Обязательные платежи до ${SAL.next}: <span class="out">${fmt(oSum)}</span></h3><table>
+ ${obl.map(o=>`<tr><td>${esc(o.name)}</td><td class="mut">${o.when}</td><td>${esc(acc(o.acc)?.name)}</td><td class="r">${fmt(o.sum)}</td></tr>`).join('')||'<tr><td class="mut">Нет</td></tr>'}</table></div>
+ <div class="card"><h3>2. В накопления: <span class="in">${fmt(gSum)}</span></h3><table>
+ ${goals.map(x=>`<tr><td>${esc(x.g.name)}</td><td>${x.g.acc?esc(acc(x.g.acc)?.name):'отдельно'}</td><td class="r">${fmt(x.c.pmt)}</td></tr>`).join('')||'<tr><td class="mut">Нет целей</td></tr>'}</table></div>
+ <div class="card"><h3>3. Свободно на жизнь: <span class="${free<0?'out':'in'}">${fmt(free)}</span></h3>
+ ${free<0?'<p class="out">Не хватает! Пересмотрите сроки целей или расходы.</p>':`<p>≈ <b>${fmt(free/days)}</b> в день · <b>${fmt(free/days*7)}</b> в неделю (${Math.round(days)} дн.)</p>`}</div>
+ <div class="card"><h3>Куда сколько перевести</h3><table>${Object.entries(byAcc).map(([k,v])=>`<tr><td>${k==='_'?'Отложить отдельно (наличные/вне счетов)':esc(acc(k)?.name)}</td><td class="r">${fmt(v)}</td></tr>`).join('')}
+ <tr><td>Оставить на расходы (${esc(acc(SAL.acc)?.name)})</td><td class="r">${fmt(Math.max(0,free))}</td></tr></table></div>`:'<p class="mut">Введите сумму — приложение распределит её по платежам, целям и свободным деньгам.</p>'}`};
+function salSave(){const sum=+SAL.sum;if(!(sum>0))return;S.tx.push({id:uid(),type:'income',date:SAL.date,sum,acc:SAL.acc,cat:'Зарплата',note:''});save();alert('Доход записан')}
+
+V.set=()=>`${['expense','income'].map(k=>`<div class="card"><h2>Категории ${k==='expense'?'расходов':'доходов'}</h2>
+ <p>${S.cats[k].map((c,i)=>`<button class="s" style="margin:2px" onclick="renCat('${k}',${i})">${esc(c)}</button>`).join('')}</p>
+ <div class="row"><input id="nc_${k}" placeholder="Новая категория"><button class="b" onclick="addCat('${k}')">Добавить</button></div><p class="mut">Нажмите на категорию, чтобы переименовать или удалить.</p></div>`).join('')}
+ <div class="card"><h2>Резервная копия</h2><p class="mut">Данные хранятся в этом браузере. Регулярно сохраняйте копию.</p>
+ <div class="row"><button class="b" onclick="exportData()">Скачать JSON</button><label>Загрузить<input type="file" accept=".json" onchange="importData(this)"></label></div></div>`;
+function addCat(k){const v=val('nc_'+k).trim();if(v&&!S.cats[k].includes(v)){S.cats[k].push(v);save();render()}}
+function renCat(k,i){const old=S.cats[k][i];const n=prompt('Новое имя (пусто — удалить)',old);if(n===null)return;
+ if(n===''){S.cats[k].splice(i,1)}else{S.cats[k][i]=n;S.tx.forEach(t=>{if(t.cat===old&&t.type===k)t.cat=n})}save();render()}
+function exportData(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='finance-'+today()+'.json';a.click()}
+function importData(inp){const f=inp.files[0];if(!f)return;f.text().then(t=>{try{S=Object.assign(structuredClone(def),JSON.parse(t));save();render()}catch(e){alert('Неверный файл')}})}
+
+accrue();render();
+if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(r=>r.update());let rl;navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!rl){rl=1;location.reload()}})}
+</script>
+</body>
+</html>
