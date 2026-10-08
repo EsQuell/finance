@@ -119,10 +119,10 @@ V.ops=()=>{const list=S.tx.filter(t=>(!F.from||t.date>=F.from)&&(!F.to||t.date<=
  const rows=list.map(t=>{const d=t.date!==lastDay?`<div class="day">${dayName(t.date)}</div>`:'';lastDay=t.date;
   const title=t.type==='transfer'?'Перевод → '+esc(acc(t.to)?.name):esc(t.cat);
   return d+`<div class="item"><div class="ico ${t.type}">${t.type==='transfer'?'⇄':esc((t.cat||'?')[0])}</div>
-  <div class="t"><div>${title}</div><div class="mut">${esc(acc(t.acc)?.name)}${t.note?' · '+esc(t.note):''}</div></div>
+  <div class="t" style="cursor:pointer" onclick="editTx('${t.id}')"><div>${title}</div><div class="mut">${esc(acc(t.acc)?.name)}${t.note?' · '+esc(t.note):''}</div></div>
   <div class="v ${t.type==='income'?'in':t.type==='expense'?'out':''}">${t.type==='expense'?'−':t.type==='income'?'+':''}${fmt(t.sum)}</div>
   <button class="del" title="Удалить" aria-label="Удалить операцию" onclick="delTx('${t.id}')">🗑</button></div>`}).join('');
- return `<div class="card">
+ return `<div class="card">${NT.edit?'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Редактирование</h2><button class="s" onclick="cancelEdit()">Отмена</button></div>':''}
  <div class="seg">${Object.entries(TL).map(([k,v])=>`<button class="${k} ${ty===k?'on':''}" onclick="NT.type='${k}';render()">${v}</button>`).join('')}</div>
  <input id="tSum" class="amount" type="number" step="0.01" inputmode="decimal" placeholder="0 ₽" value="${NT.sum}" oninput="NT.sum=this.value">
  ${ty==='transfer'?'':`<div class="mut">Категория</div><div class="chips">${cats.map(c=>`<button class="chip ${c===NT.cat?'on':''}" onclick="NT.cat=this.dataset.c;render()" data-c="${esc(c)}">${esc(c)}</button>`).join('')}</div>`}
@@ -131,7 +131,7 @@ V.ops=()=>{const list=S.tx.filter(t=>(!F.from||t.date>=F.from)&&(!F.to||t.date<=
  ${ty==='transfer'?`<label>На счёт<select onchange="NT.to=this.value">${accOpts(fTo)}</select></label>`:''}
  <label>Дата<input type="date" value="${NT.date}" onchange="NT.date=this.value"></label>
  <label>Комментарий<input value="${esc(NT.note)}" oninput="NT.note=this.value" placeholder="необязательно"></label></div>
- <button class="big ${ty}" onclick="addTx()">${ty==='expense'?'− Записать расход':ty==='income'?'+ Записать доход':'⇄ Записать перевод'}</button></div>
+ <button class="big ${ty}" onclick="addTx()">${NT.edit?'✓ Сохранить изменения':ty==='expense'?'− Записать расход':ty==='income'?'+ Записать доход':'⇄ Записать перевод'}</button></div>
  <div class="card"><h2>Журнал</h2>
  <div class="sum3"><div>Доходы<b class="in">${fmt(inc)}</b></div><div>Расходы<b class="out">${fmt(exp)}</b></div><div>Итог<b>${fmt(inc-exp)}</b></div></div>
  <details ${F.to||F.type||F.cat||F.acc?'open':''}><summary>Фильтры</summary><div class="row" style="margin-top:10px">
@@ -147,73 +147,205 @@ function addTx(){const sum=+NT.sum;if(!(sum>0))return alert('Введите су
  const a=NT.acc||S.accounts[0]?.id,to=NT.to||S.accounts.find(x=>x.id!==a)?.id;
  if(type==='transfer'&&(!to||a===to))return alert('Выберите разные счета');
  if(type!=='transfer'&&!S.cats[type].includes(NT.cat))NT.cat=S.cats[type][0]||'Прочее';
- S.tx.push({id:uid(),type,sum,date:NT.date||today(),acc:a,to:type==='transfer'?to:undefined,cat:type==='transfer'?'':NT.cat,note:NT.note});
- NT.sum='';NT.note='';save();render()}
-function delTx(id){const t=S.tx.find(x=>x.id===id);if(confirm(`Удалить операцию «${t.cat||'перевод'}» на ${fmt(t.sum)}?`)){S.tx=S.tx.filter(x=>x.id!==id);save();render()}}
+ const rec={id:NT.edit||uid(),type,sum,date:NT.date||today(),acc:a,to:type==='transfer'?to:undefined,cat:type==='transfer'?'':NT.cat,note:NT.note};
+ if(NT.edit){const i=S.tx.findIndex(x=>x.id===NT.edit);if(i>=0)S.tx[i]=rec;else S.tx.push(rec)}else S.tx.push(rec);
+ NT={type,cat:NT.cat,sum:'',note:'',date:today(),acc:NT.acc,to:NT.to};save();render()}
+function editTx(id){const t=S.tx.find(x=>x.id===id);NT={type:t.type,cat:t.cat,sum:t.sum,note:t.note||'',date:t.date,acc:t.acc,to:t.to||'',edit:id};render();scrollTo({top:0,behavior:'smooth'})}
+function cancelEdit(){NT={type:NT.type,cat:'',sum:'',note:'',date:today(),acc:'',to:''};render()}
+function delTx(id){const t=S.tx.find(x=>x.id===id);if(confirm(`Удалить операцию «${t.cat||'перевод'}» на ${fmt(t.sum)}?`)){S.tx=S.tx.filter(x=>x.id!==id);if(NT.edit===id)NT.edit='';save();render()}}
 
 const TYPES={card:'Карта',cash:'Наличные',deposit:'Вклад / накопительный',credit:'Кредитка'};
-V.acc=()=>{const total=S.accounts.reduce((s,a)=>s+balance(a.id),0);
- return `<div class="card"><h2>Счета · всего ${fmt(total)}</h2><div class="grid">${S.accounts.map(a=>{const b=balance(a.id);
- const m=today().slice(0,8)+'01',bm=balance(a.id,new Date(new Date(m)-864e5).toISOString().slice(0,10));
+const addDays=(d,n)=>{const x=new Date(d+'T12:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
+const daysTo=d=>Math.round((new Date(d+'T12:00')-new Date(today()+'T12:00'))/864e5);
+// Кредитка: долг, доступный лимит и конец льготного периода.
+// Льготный период начинается с первой траты, после которой баланс ушёл в минус, и сбрасывается при полном погашении.
+function creditInfo(a){const b=balance(a.id),debt=Math.max(0,-b),limit=+a.limit||0;
+ let bal=+a.start||0,start=bal<-0.004?a.startDate:null;
+ S.tx.filter(t=>t.acc===a.id||t.to===a.id).sort((x,y)=>x.date.localeCompare(y.date)).forEach(t=>{
+  if(t.type==='income'||(t.type==='transfer'&&t.to===a.id))bal+=t.sum;else bal-=t.sum;
+  if(bal<-0.004){if(!start)start=t.date}else start=null});
+ if(start&&a.graceFrom&&a.graceFrom>start)start=a.graceFrom;
+ const due=debt>0&&start&&+a.grace?addDays(start,+a.grace):null;
+ return {debt,limit,avail:limit-debt,start,due}}
+// Долги по кредитам из вкладки «Платежи»
+const loanDebt=()=>S.obl.filter(o=>o.type==='loan').reduce((s,o)=>s+(+o.debt||0),0);
+V.acc=()=>{const own=S.accounts.reduce((s,a)=>s+(a.type==='credit'?Math.max(0,balance(a.id)):balance(a.id)),0);
+ const cDebt=S.accounts.filter(a=>a.type==='credit').reduce((s,a)=>s+creditInfo(a).debt,0),lDebt=loanDebt();
+ return `<div class="card"><h2>Счета</h2>
+ <div class="sum3"><div>Свои деньги<b class="in">${fmt(own)}</b></div><div>Долги<b class="out">${fmt(cDebt+lDebt)}</b></div><div>Капитал<b>${fmt(own-cDebt-lDebt)}</b></div></div>
+ ${lDebt?`<p class="mut">В долгах учтены кредиты из вкладки «Платежи»: ${fmt(lDebt)}</p>`:''}
+ <div class="grid">${S.accounts.map(a=>{const b=balance(a.id);
+ const m=today().slice(0,8)+'01',bm=balance(a.id,addDays(m,-1));
+ let extra='';
+ if(a.type==='credit'){const c=creditInfo(a);const used=c.limit?Math.min(100,c.debt/c.limit*100):0;
+  extra=`<div style="margin:6px 0">${c.limit?`<div class="mut">Доступно ${fmt(c.avail)} из ${fmt(c.limit)}</div><div class="bar" style="margin:4px 0"><i style="width:${used}%;background:var(--out)"></i></div>`:''}
+  ${c.due?(()=>{const n=daysTo(c.due);return `<span class="badge ${n<=7?'warn':''}">${n<0?'Льготный период истёк '+(-n)+' дн. назад':'Погасить до '+new Date(c.due+'T12:00').toLocaleDateString('ru-RU')+' · '+n+' дн.'}</span>`})():c.debt>0&&!+a.grace?'<span class="mut">Укажите льготный период в «Изменить»</span>':''}</div>`}
  return `<div class="tile"><span class="mut">${TYPES[a.type]}${a.type==='deposit'?' · '+a.rate+'% ('+(a.cap==='daily'?'ежедн.':'ежемес.')+')':''}</span>
- <div>${esc(a.name)}</div><b class="${b<0?'out':''}">${fmt(b)}</b><span class="mut">на начало месяца: ${fmt(bm)}</span><br>
+ <div>${esc(a.name)}</div>
+ ${a.type==='credit'?`<b class="${b<0?'out':''}">${b<0?'Долг '+fmt(-b):fmt(b)}</b>`:`<b class="${b<0?'out':''}">${fmt(b)}</b>`}
+ ${extra}<span class="mut">на начало месяца: ${fmt(bm)}</span><br>
  <button class="s" onclick="editAcc('${a.id}')">Изменить</button> <button class="s" onclick="delAcc('${a.id}')">Удалить</button></div>`}).join('')}</div></div>
  <div class="card"><h2>Добавить счёт</h2><div class="row">
- <label>Название<input id="aName"></label><label>Тип<select id="aType">${opts(Object.entries(TYPES))}</select></label>
- <label>Текущий остаток<input id="aStart" type="number" step="0.01"></label><label>На дату<input id="aDate" type="date" value="${today()}"></label>
- <label>Ставка, % годовых<input id="aRate" type="number" step="0.01" placeholder="для вкладов"></label>
- <label>Капитализация<select id="aCap">${opts([['monthly','Ежемесячно'],['daily','Ежедневно']])}</select></label>
+ <label>Название<input id="aName"></label><label>Тип<select id="aType" onchange="accForm()">${opts(Object.entries(TYPES))}</select></label>
+ <label><span id="aStartL">Текущий остаток</span><input id="aStart" type="number" step="0.01" inputmode="decimal"></label><label>На дату<input id="aDate" type="date" value="${today()}"></label>
+ <label class="fdep" style="display:none">Ставка, % годовых<input id="aRate" type="number" step="0.01"></label>
+ <label class="fdep" style="display:none">Капитализация<select id="aCap">${opts([['monthly','Ежемесячно'],['daily','Ежедневно']])}</select></label>
+ <label class="fcr" style="display:none">Кредитный лимит<input id="aLimit" type="number" step="0.01" inputmode="decimal"></label>
+ <label class="fcr" style="display:none">Льготный период, дней<input id="aGrace" type="number" placeholder="например 55 или 120" inputmode="numeric"></label>
+ <label class="fcr" style="display:none">Льготный период начался<input id="aGraceFrom" type="date"></label>
  <button class="b" onclick="addAcc()">Добавить</button></div>
- <p class="mut">Остаток переносится из месяца в месяц автоматически. По вкладам проценты начисляются сами раз в месяц операцией «Проценты».</p></div>`};
-function addAcc(){const name=val('aName').trim();if(!name)return alert('Название?');const d=val('aDate');
- S.accounts.push({id:uid(),name,type:val('aType'),start:+val('aStart')||0,startDate:d,rate:+val('aRate')||0,cap:val('aCap'),lastAccrual:d});accrue();render()}
+ <p class="mut">Остаток переносится из месяца в месяц автоматически. По вкладам проценты начисляются сами раз в месяц операцией «Проценты». По кредитке траты уводят баланс в минус — это и есть долг; погашение — перевод на кредитку с другого счёта.</p></div>`};
+function accForm(){const t=val('aType');document.querySelectorAll('.fdep').forEach(e=>e.style.display=t==='deposit'?'':'none');
+ document.querySelectorAll('.fcr').forEach(e=>e.style.display=t==='credit'?'':'none');
+ document.getElementById('aStartL').textContent=t==='credit'?'Текущий долг':'Текущий остаток'}
+function addAcc(){const name=val('aName').trim();if(!name)return alert('Название?');const d=val('aDate'),type=val('aType');
+ let start=+val('aStart')||0;if(type==='credit')start=-Math.abs(start);
+ S.accounts.push({id:uid(),name,type,start,startDate:d,rate:+val('aRate')||0,cap:val('aCap'),lastAccrual:d,
+  limit:+val('aLimit')||0,grace:+val('aGrace')||0,graceFrom:val('aGraceFrom')||''});accrue();render()}
 function editAcc(id){const a=acc(id);const n=prompt('Название',a.name);if(n===null)return;a.name=n||a.name;
- const fact=prompt('Фактический остаток сейчас (для сверки, пусто — не менять)',balance(id).toFixed(2));
- if(fact!==null&&fact!==''&&Math.abs(+fact-balance(id))>0.004){a.start+= +fact-balance(id)}
- if(a.type==='deposit'){const r=prompt('Ставка % годовых',a.rate);if(r!==null)a.rate=+r}save();render()}
+ const cr=a.type==='credit',cur=balance(id);
+ const fact=prompt(cr?'Фактический долг сейчас (для сверки, пусто — не менять)':'Фактический остаток сейчас (для сверки, пусто — не менять)',(cr?Math.max(0,-cur):cur).toFixed(2));
+ if(fact!==null&&fact!==''){const target=cr?-Math.abs(+fact):+fact;if(Math.abs(target-cur)>0.004)a.start+=target-cur}
+ if(a.type==='deposit'){const r=prompt('Ставка % годовых',a.rate);if(r!==null)a.rate=+r}
+ if(cr){const l=prompt('Кредитный лимит',a.limit||'');if(l!==null)a.limit=+l||0;
+  const g=prompt('Льготный период, дней',a.grace||'');if(g!==null)a.grace=+g||0;
+  const gf=prompt('Дата начала текущего льготного периода, ГГГГ-ММ-ДД (пусто — считать по операциям)',a.graceFrom||'');if(gf!==null)a.graceFrom=/^\d{4}-\d\d-\d\d$/.test(gf)?gf:''}
+ save();render()}
 function delAcc(id){if(S.tx.some(t=>t.acc===id||t.to===id))return alert('По счёту есть операции');if(confirm('Удалить счёт?')){S.accounts=S.accounts.filter(a=>a.id!==id);save();render()}}
 
 let SF={from:today().slice(0,5)+'01-01',to:today(),acc:''};
+const PAL=['#2f6fed','#e0384f','#f2a516','#14a05a','#8b5cf6','#06b6d4','#ec4899','#9aa1b2'];
+const short=n=>Math.abs(n)>=1e6?(n/1e6).toFixed(1).replace('.0','')+'м':Math.abs(n)>=1e3?Math.round(n/1e3)+'к':Math.round(n)+'';
+const monthName=k=>new Date(k+'-15').toLocaleDateString('ru-RU',{month:'short'}).replace('.','');
+const monthsBetween=(a,b)=>{const r=[];let d=new Date(a.slice(0,7)+'-15');const e=b.slice(0,7);while(d.toISOString().slice(0,7)<=e){r.push(d.toISOString().slice(0,7));d.setMonth(d.getMonth()+1)}return r};
+const monthEnd=k=>{const d=new Date(k+'-15');d.setMonth(d.getMonth()+1,0);return d.toISOString().slice(0,10)};
+// Столбики доходов и расходов по месяцам
+function barChart(ms,data){if(!ms.length)return '<p class="mut">Нет данных</p>';
+ const W=Math.max(340,ms.length*40),H=200,pad=28,max=Math.max(1,...ms.map(k=>Math.max(data[k]?.i||0,data[k]?.e||0)));
+ const bw=Math.min(16,(W-pad)/ms.length/2-4),y=v=>H-24-(v/max)*(H-44);
+ let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:${ms.length>9?ms.length*34:0}px;height:auto" role="img" aria-label="Доходы и расходы по месяцам">`;
+ [0,.5,1].forEach(f=>{const yy=y(max*f);s+=`<line x1="${pad}" x2="${W}" y1="${yy}" y2="${yy}" stroke="var(--bd)"/><text x="0" y="${yy+4}" font-size="12" fill="var(--mut)">${short(max*f)}</text>`});
+ ms.forEach((k,i)=>{const cx=pad+(i+.5)*(W-pad)/ms.length,v=data[k]||{i:0,e:0};
+  s+=`<rect x="${cx-bw-1}" y="${y(v.i)}" width="${bw}" height="${H-24-y(v.i)}" rx="3" fill="var(--in)"><title>${k} доходы: ${fmt(v.i)}</title></rect>`;
+  s+=`<rect x="${cx+1}" y="${y(v.e)}" width="${bw}" height="${H-24-y(v.e)}" rx="3" fill="var(--out)"><title>${k} расходы: ${fmt(v.e)}</title></rect>`;
+  s+=`<text x="${cx}" y="${H-8}" font-size="12" fill="var(--mut)" text-anchor="middle">${monthName(k)}</text>`});
+ return s+'</svg>'}
+// Кольцевая диаграмма расходов по категориям
+function donut(arr){const tot=arr.reduce((s,x)=>s+x[1],0);if(!tot)return '<p class="mut">Нет расходов за период</p>';
+ let top=arr.slice(0,7);const rest=arr.slice(7).reduce((s,x)=>s+x[1],0);if(rest)top.push(['Остальное',rest]);
+ const R=60,C=2*Math.PI*R;let off=0;
+ let s=`<svg viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="Расходы по категориям" style="flex:0 0 160px"><g transform="rotate(-90 80 80)">`;
+ top.forEach(([c,v],i)=>{const len=v/tot*C;s+=`<circle cx="80" cy="80" r="${R}" fill="none" stroke="${PAL[i%PAL.length]}" stroke-width="26" stroke-dasharray="${Math.max(0,len-1.5)} ${C}" stroke-dashoffset="${-off}"><title>${esc(c)}: ${fmt(v)}</title></circle>`;off+=len});
+ s+=`</g><text x="80" y="76" text-anchor="middle" font-size="11" fill="var(--mut)">всего</text><text x="80" y="94" text-anchor="middle" font-size="15" font-weight="700" fill="var(--tx)">${short(tot)} ₽</text></svg>`;
+ const leg=top.map(([c,v],i)=>`<div style="display:flex;align-items:center;gap:8px;margin:5px 0"><i style="width:10px;height:10px;border-radius:3px;background:${PAL[i%PAL.length]};flex:0 0 10px"></i><span style="flex:1">${esc(c)}</span><span class="mut">${(v/tot*100).toFixed(0)}%</span><b style="font-size:14px">${fmt(v)}</b></div>`).join('');
+ return `<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">${s}<div style="flex:1 1 220px">${leg}</div></div>`}
+// Линия капитала (свои деньги минус долги кредиток) на конец каждого месяца
+function lineChart(ms,vals){if(ms.length<2)return '<p class="mut">Нужно хотя бы два месяца данных</p>';
+ const W=Math.max(340,ms.length*40),H=180,pad=34,mn=Math.min(0,...vals),mx=Math.max(1,...vals);
+ const x=i=>pad+i*(W-pad-12)/(ms.length-1),y=v=>H-24-(v-mn)/(mx-mn||1)*(H-44);
+ let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:${ms.length>9?ms.length*34:0}px;height:auto" role="img" aria-label="Капитал по месяцам">`;
+ [mn,(mn+mx)/2,mx].forEach(v=>{s+=`<line x1="${pad}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--bd)"/><text x="0" y="${y(v)+4}" font-size="12" fill="var(--mut)">${short(v)}</text>`});
+ const pts=vals.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+ s+=`<polygon points="${x(0)},${y(Math.max(mn,0))} ${pts} ${x(ms.length-1)},${y(Math.max(mn,0))}" fill="var(--ac)" opacity=".12"/><polyline points="${pts}" fill="none" stroke="var(--ac)" stroke-width="2.5" stroke-linejoin="round"/>`;
+ vals.forEach((v,i)=>{s+=`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--ac)"><title>${ms[i]}: ${fmt(v)}</title></circle><text x="${x(i)}" y="${H-8}" font-size="12" fill="var(--mut)" text-anchor="middle">${monthName(ms[i])}</text>`});
+ return s+'</svg>'}
 V.stat=()=>{const L=S.tx.filter(t=>t.date>=SF.from&&t.date<=SF.to&&(!SF.acc||t.acc===SF.acc));
  const by=type=>{const m={};L.filter(t=>t.type===type).forEach(t=>m[t.cat]=(m[t.cat]||0)+t.sum);return Object.entries(m).sort((a,b)=>b[1]-a[1])};
  const months={};L.forEach(t=>{if(t.type==='transfer')return;const k=t.date.slice(0,7);months[k]=months[k]||{i:0,e:0};months[k][t.type==='income'?'i':'e']+=t.sum});
- const block=(title,arr,cls)=>{const tot=arr.reduce((s,x)=>s+x[1],0);return `<div class="card"><h3>${title}: <span class="${cls}">${fmt(tot)}</span></h3>
- ${arr.map(([c,v])=>`<div style="margin:6px 0"><div style="display:flex;justify-content:space-between"><span>${esc(c)}</span><span>${fmt(v)} · ${(v/tot*100).toFixed(1)}%</span></div><div class="bar"><i style="width:${v/tot*100}%"></i></div></div>`).join('')||'<span class="mut">Нет данных</span>'}</div>`};
+ // начинаем с первого месяца, где есть данные, чтобы не рисовать пустые месяцы
+ const first=[...S.tx.map(t=>t.date),...S.accounts.map(a=>a.startDate||today())].sort()[0]||today();
+ const ms=monthsBetween(SF.from>first?SF.from:first,SF.to).slice(-24);
+ const accs=SF.acc?S.accounts.filter(a=>a.id===SF.acc):S.accounts;
+ const cap=ms.map(k=>{const d=k===today().slice(0,7)?today():monthEnd(k);return accs.reduce((s,a)=>s+(a.startDate&&a.startDate>d?0:balance(a.id,d)),0)});
+ const inc=by('income');const totI=inc.reduce((s,x)=>s+x[1],0);
  return `<div class="card"><div class="row"><label>С<input type="date" value="${SF.from}" onchange="SF.from=this.value;render()"></label>
  <label>По<input type="date" value="${SF.to}" onchange="SF.to=this.value;render()"></label>
  <label>Счёт<select onchange="SF.acc=this.value;render()">${opts([['','Все'],...S.accounts.map(a=>[a.id,a.name])],SF.acc)}</select></label></div></div>
- ${block('Расходы по категориям',by('expense'),'out')}${block('Доходы по категориям',by('income'),'in')}
+ <div class="card"><h3>Доходы и расходы по месяцам</h3><div class="mut" style="margin-bottom:6px"><span class="in">■</span> доходы &nbsp; <span class="out">■</span> расходы</div><div class="scroll">${barChart(ms,months)}</div></div>
+ <div class="card"><h3>Расходы по категориям</h3>${donut(by('expense'))}</div>
+ <div class="card"><h3>Капитал на конец месяца</h3><div class="mut" style="margin-bottom:6px">Сумма балансов счетов${SF.acc?'':' (долги кредиток вычтены)'}</div><div class="scroll">${lineChart(ms,cap)}</div></div>
+ <div class="card"><h3>Доходы по категориям: <span class="in">${fmt(totI)}</span></h3>
+ ${inc.map(([c,v])=>`<div style="margin:6px 0"><div style="display:flex;justify-content:space-between"><span>${esc(c)}</span><span>${fmt(v)} · ${(v/totI*100).toFixed(1)}%</span></div><div class="bar"><i style="width:${v/totI*100}%;background:var(--in)"></i></div></div>`).join('')||'<span class="mut">Нет данных</span>'}</div>
  <div class="card"><h3>По месяцам</h3><div class="scroll"><table><tr><th>Месяц</th><th class="r">Доходы</th><th class="r">Расходы</th><th class="r">Итог</th></tr>
  ${Object.entries(months).sort().reverse().map(([k,v])=>`<tr><td>${k}</td><td class="r in">${fmt(v.i)}</td><td class="r out">${fmt(v.e)}</td><td class="r">${fmt(v.i-v.e)}</td></tr>`).join('')}</table></div></div>`};
 
 const OT={sub:'Подписка',rent:'Аренда',loan:'Кредит',util:'Коммуналка',other:'Другое'};
 const curMonth=()=>today().slice(0,7);
+// Кредит (аннуитет): сколько месяцев осталось и сколько процентов ещё заплатим
+function loanCalc(P,rate,A){const r=rate/1200;if(!(P>0)||!(A>0))return null;
+ if(!r){const n=Math.ceil(P/A);return {n,interest:0}}
+ if(A<=P*r)return {n:Infinity,interest:Infinity};
+ const n=Math.ceil(-Math.log(1-r*P/A)/Math.log(1+r));
+ // точная переплата: последний платёж меньше обычного
+ let p=P,int=0;for(let i=0;i<n;i++){const ii=p*r;int+=ii;p=p+ii-Math.min(A,p+ii)}
+ return {n,interest:int}}
+function loanInfo(o){const c=loanCalc(+o.debt,+o.rate||0,o.sum);if(!c)return null;
+ const end=new Date();end.setMonth(end.getMonth()+(isFinite(c.n)?c.n-(o.paid===curMonth()?0:1):0));
+ return {...c,end:isFinite(c.n)?end.toLocaleDateString('ru-RU',{month:'long',year:'numeric'}):'никогда (платёж меньше процентов)'}}
+let LE={id:'',x:''};
+function earlyBlock(o){const x=+LE.x||0,P=+o.debt,r=(+o.rate||0)/1200,base=loanCalc(P,+o.rate||0,o.sum);
+ let res='';
+ if(x>0&&x<P&&base){const P2=P-x;
+  const term=loanCalc(P2,+o.rate||0,o.sum);
+  const A2=r?P2*r/(1-Math.pow(1+r,-base.n)):P2/base.n;const pay=loanCalc(P2,+o.rate||0,A2);
+  res=`<table style="margin-top:8px"><tr><th></th><th class="r">Сократить срок</th><th class="r">Уменьшить платёж</th></tr>
+  <tr><td>Платёж</td><td class="r">${fmt(o.sum)}</td><td class="r">${fmt(A2)}</td></tr>
+  <tr><td>Осталось месяцев</td><td class="r">${term.n} <span class="in">(−${base.n-term.n})</span></td><td class="r">${base.n}</td></tr>
+  <tr><td>Экономия на процентах</td><td class="r in">${fmt(base.interest-term.interest)}</td><td class="r in">${fmt(base.interest-pay.interest)}</td></tr>
+  <tr><td></td><td class="r"><button class="s green" onclick="loanEarly('${o.id}','term')">Погасить так</button></td><td class="r"><button class="s green" onclick="loanEarly('${o.id}','pay',${A2})">Погасить так</button></td></tr></table>
+  <p class="mut">Обычно выгоднее сокращать срок — экономия больше.</p>`}
+ else if(x>=P&&x>0)res=`<p>Этой суммы хватит закрыть кредит полностью. <button class="s green" onclick="loanEarly('${o.id}','full')">Закрыть кредит</button></p>`;
+ return `<div style="flex-basis:100%;padding:10px 0 0 52px"><div class="row"><label>Сумма досрочного погашения<input type="number" inputmode="decimal" value="${LE.x}" oninput="LE.x=this.value" onchange="render()"></label><button class="b" onclick="render()">Рассчитать</button></div>${res}</div>`}
 V.obl=()=>{const t=new Date().getDate(),m=curMonth();
  const paidSum=S.obl.filter(o=>o.paid===m).reduce((s,o)=>s+o.sum,0),all=S.obl.reduce((s,o)=>s+o.sum,0);
  return `<div class="card"><h2>Обязательные платежи</h2>
  <div class="sum3"><div>В месяц<b>${fmt(all)}</b></div><div>Оплачено<b class="in">${fmt(paidSum)}</b></div><div>Осталось<b class="out">${fmt(all-paidSum)}</b></div></div>
  <div class="list">${S.obl.slice().sort((a,b)=>(a.paid===m)-(b.paid===m)||a.day-b.day).map(o=>{const paid=o.paid===m;const left=o.day>=t?o.day-t:o.day+30-t;
+ const li=o.type==='loan'?loanInfo(o):null;
  return `<div class="item" style="flex-wrap:wrap"><div class="ico ${paid?'income':'expense'}">${paid?'✓':o.day}</div>
  <div class="t"><div>${esc(o.name)}</div><div class="mut">${OT[o.type]} · ${o.day}-го · ${esc(acc(o.acc)?.name)}${o.type==='loan'&&o.until?' · до '+o.until:''}</div>
  <div style="margin-top:4px">${paid?'<span class="badge">Оплачен в этом месяце</span>':`<span class="badge ${left<=3?'warn':''}" style="${left>3?'background:var(--bg);color:var(--mut)':''}">${left===0?'Сегодня':'через '+left+' дн.'}</span>`}</div></div>
  <div class="v">${fmt(o.sum)}</div>
- <div style="flex-basis:100%;display:flex;gap:6px;flex-wrap:wrap;padding-left:52px;margin-top:6px">
+ ${o.type==='loan'?`<div style="flex-basis:100%;padding-left:52px;margin-top:8px">${li?`<div class="sum3" style="margin:0"><div>Остаток долга<b class="out">${fmt(o.debt)}</b></div><div>Ещё переплата<b>${isFinite(li.interest)?fmt(li.interest):'∞'}</b></div><div>Закроется<b style="font-size:13px">${li.end}</b></div></div>
+  <div class="mut" style="margin-top:6px">Ставка ${+o.rate||0}% · осталось платежей: ${li.n}${o.intPaid?' · уже переплачено процентов: '+fmt(o.intPaid):''}</div>`:'<span class="mut">Укажите остаток долга и ставку в «Изменить», чтобы видеть переплату и дату закрытия.</span>'}</div>`:''}
+ <div style="flex-basis:100%;display:flex;gap:6px;flex-wrap:wrap;padding-left:52px;margin-top:8px">
  ${paid?`<button class="s" onclick="unpayObl('${o.id}')">Снять отметку</button>`:`<button class="s green" onclick="payObl('${o.id}',1)">Оплачено + записать расход</button><button class="s" onclick="payObl('${o.id}',0)">Оплачено, без учёта</button>`}
- <button class="s red" onclick="delObl('${o.id}')">Удалить</button></div></div>`}).join('')||'<p class="mut">Пока пусто</p>'}</div>
- <p class="mut">«Без учёта» — платёж просто отмечается оплаченным, баланс счёта не меняется. Удобно, если расход уже записан вручную или платили не со своих счетов.</p></div>
+ ${li?`<button class="s" onclick="LE.id=LE.id==='${o.id}'?'':'${o.id}';LE.x='';render()">Досрочное погашение</button>`:''}
+ <button class="s" onclick="editObl('${o.id}')">Изменить</button><button class="s red" onclick="delObl('${o.id}')">Удалить</button></div>
+ ${li&&LE.id===o.id?earlyBlock(o):''}</div>`}).join('')||'<p class="mut">Пока пусто</p>'}</div>
+ <p class="mut">«Без учёта» — платёж просто отмечается оплаченным, баланс счёта не меняется. По кредиту любая отметка «оплачено» уменьшает остаток долга на тело платежа.</p></div>
  <div class="card"><h2>Добавить платёж</h2><div class="row"><label>Название<input id="oName"></label>
- <label>Тип<select id="oType">${opts(Object.entries(OT))}</select></label><label>Сумма<input id="oSum" type="number" step="0.01" inputmode="decimal"></label>
+ <label>Тип<select id="oType" onchange="document.querySelectorAll('.floan').forEach(e=>e.style.display=this.value==='loan'?'':'none')">${opts(Object.entries(OT))}</select></label><label>Сумма платежа<input id="oSum" type="number" step="0.01" inputmode="decimal"></label>
  <label>День месяца<input id="oDay" type="number" min="1" max="31" inputmode="numeric"></label><label>Со счёта<select id="oAcc">${accOpts()}</select></label>
- <label>Кредит до (необяз.)<input id="oUntil" type="date"></label><button class="b" onclick="addObl()">Добавить</button></div></div>`};
+ <label class="floan" style="display:none">Остаток долга<input id="oDebt" type="number" step="0.01" inputmode="decimal"></label>
+ <label class="floan" style="display:none">Ставка, % годовых<input id="oRate" type="number" step="0.01" inputmode="decimal"></label>
+ <button class="b" onclick="addObl()">Добавить</button></div></div>`};
 function addObl(){const sum=+val('oSum'),day=+val('oDay');if(!val('oName')||!(sum>0)||!(day>=1&&day<=31))return alert('Заполните название, сумму и день');
- S.obl.push({id:uid(),name:val('oName'),type:val('oType'),sum,day,acc:val('oAcc'),until:val('oUntil')});save();render()}
+ const type=val('oType');S.obl.push({id:uid(),name:val('oName'),type,sum,day,acc:val('oAcc'),debt:type==='loan'?+val('oDebt')||0:0,rate:type==='loan'?+val('oRate')||0:0,intPaid:0});save();render()}
+function editObl(id){const o=S.obl.find(x=>x.id===id);
+ const n=prompt('Название',o.name);if(n===null)return;o.name=n||o.name;
+ const s=prompt('Сумма платежа',o.sum);if(s!==null&&+s>0)o.sum=+s;
+ const d=prompt('День месяца',o.day);if(d!==null&&+d>=1&&+d<=31)o.day=+d;
+ if(o.type==='loan'){const p=prompt('Остаток долга (по данным банка)',o.debt||'');if(p!==null)o.debt=+p||0;
+  const r=prompt('Ставка, % годовых',o.rate||'');if(r!==null)o.rate=+r||0}
+ save();render()}
 function delObl(id){if(confirm('Удалить платёж из списка?')){S.obl=S.obl.filter(o=>o.id!==id);save();render()}}
-function unpayObl(id){const o=S.obl.find(x=>x.id===id);delete o.paid;save();render()}
+function unpayObl(id){const o=S.obl.find(x=>x.id===id);
+ if(o.lastPay&&o.lastPay.m===o.paid){o.debt=(+o.debt||0)+o.lastPay.principal;o.intPaid=(+o.intPaid||0)-o.lastPay.interest;delete o.lastPay}
+ delete o.paid;save();render()}
 function payObl(id,record){const o=S.obl.find(x=>x.id===id);o.paid=curMonth();
+ if(o.type==='loan'&&+o.debt>0){const interest=Math.round(o.debt*(+o.rate||0)/1200*100)/100,principal=Math.min(+o.debt,Math.max(0,o.sum-interest));
+  o.debt=Math.round((o.debt-principal)*100)/100;o.intPaid=(+o.intPaid||0)+interest;o.lastPay={m:o.paid,principal,interest}}
  if(record){const cat={sub:'Подписки',rent:'Жильё',loan:'Кредиты',util:'Жильё'}[o.type]||'Прочее';
   if(!S.cats.expense.includes(cat))S.cats.expense.push(cat);
   S.tx.push({id:uid(),type:'expense',date:today(),sum:o.sum,acc:o.acc,cat,note:o.name})}
  save();render()}
+function loanEarly(id,mode,A2){const o=S.obl.find(x=>x.id===id);const x=Math.min(+LE.x,+o.debt);if(!(x>0))return;
+ const rec=confirm(`Списать ${fmt(x)} со счёта «${acc(o.acc)?.name}» как расход?\nОтмена — только уменьшить долг, без записи расхода.`);
+ o.debt=Math.round((o.debt-x)*100)/100;if(mode==='pay')o.sum=Math.round(A2*100)/100;
+ if(rec){if(!S.cats.expense.includes('Кредиты'))S.cats.expense.push('Кредиты');S.tx.push({id:uid(),type:'expense',date:today(),sum:x,acc:o.acc,cat:'Кредиты',note:'Досрочное погашение: '+o.name})}
+ if(o.debt<=0&&confirm('Кредит закрыт! Убрать его из списка платежей?'))S.obl=S.obl.filter(q=>q.id!==id);
+ LE={id:'',x:''};save();render()}
 
 // Накопления: ежемесячный взнос с учётом процентов (аннуитет)
 function goalCalc(g){const a=g.acc&&acc(g.acc);const cur=a?balance(a.id):(+g.saved||0);
@@ -243,6 +375,7 @@ V.sal=()=>{if(!SAL.next){const d=new Date(SAL.date);d.setMonth(d.getMonth()+1);S
  // платежи, дни которых попадают в период до следующей зарплаты
  const inPeriod=o=>{const s=new Date(SAL.date),e=new Date(SAL.next);for(let d=new Date(s);d<e;d.setDate(d.getDate()+1))if(d.getDate()===Math.min(o.day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()))return d.toISOString().slice(0,10);return null};
  const obl=S.obl.filter(o=>!o.until||o.until>=SAL.date).map(o=>({...o,when:inPeriod(o)})).filter(o=>o.when&&o.paid!==o.when.slice(0,7));
+ S.accounts.filter(x=>x.type==='credit').forEach(x=>{const c=creditInfo(x);if(c.debt>0&&c.due&&c.due<SAL.next)obl.unshift({name:'Погасить кредитку «'+x.name+'» (льготный период)',sum:c.debt,acc:x.id,when:c.due})});
  const goals=S.goals.map(g=>({g,c:goalCalc(g)})).filter(x=>x.c.pmt>0);
  const oSum=obl.reduce((s,o)=>s+o.sum,0),gSum=goals.reduce((s,x)=>s+x.c.pmt,0),free=sum-oSum-gSum;
  const days=Math.max(1,(new Date(SAL.next)-new Date(SAL.date))/864e5);
