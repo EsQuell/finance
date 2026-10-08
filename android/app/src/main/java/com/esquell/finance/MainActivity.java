@@ -3,6 +3,10 @@ package com.esquell.finance;
 import android.app.Activity;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.view.View;
+import android.widget.FrameLayout;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -27,7 +31,21 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         web = new WebView(this);
-        setContentView(web);
+        // Отступы под строку состояния и навигации, чтобы вкладки не залезали под время и значки
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(dark ? Color.rgb(27, 30, 37) : Color.WHITE);
+        root.addView(web);
+        root.setOnApplyWindowInsetsListener((v, in) -> {
+            v.setPadding(in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(),
+                    in.getSystemWindowInsetRight(), in.getSystemWindowInsetBottom());
+            return in.consumeSystemWindowInsets();
+        });
+        setContentView(root);
+        getWindow().setStatusBarColor(dark ? Color.rgb(27, 30, 37) : Color.WHITE);
+        getWindow().setNavigationBarColor(dark ? Color.rgb(17, 19, 24) : Color.rgb(242, 244, 248));
+        if (!dark) getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
