@@ -1,0 +1,22 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.esquell.finance'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.esquell.finance'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getProperty('user.home') + '/.android/finance-release.jks')
+            storePassword 'finance-app'
+            keyAlias 'finance'
+            keyPassword 'finance-app'
+        }
+    }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.release } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}

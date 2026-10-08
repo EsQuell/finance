@@ -219,7 +219,10 @@ V.set=()=>`${['expense','income'].map(k=>`<div class="card"><h2>Категори
 function addCat(k){const v=val('nc_'+k).trim();if(v&&!S.cats[k].includes(v)){S.cats[k].push(v);save();render()}}
 function renCat(k,i){const old=S.cats[k][i];const n=prompt('Новое имя (пусто — удалить)',old);if(n===null)return;
  if(n===''){S.cats[k].splice(i,1)}else{S.cats[k][i]=n;S.tx.forEach(t=>{if(t.cat===old&&t.type===k)t.cat=n})}save();render()}
-function exportData(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='finance-'+today()+'.json';a.click()}
+async function exportData(){const name='finance-'+today()+'.json',txt=JSON.stringify(S,null,1);
+ if(window.AndroidApp)return AndroidApp.saveFile(name,txt);
+ try{const f=new File([txt],name,{type:'application/json'});if(navigator.canShare&&navigator.canShare({files:[f]}))return await navigator.share({files:[f],title:name})}catch(e){if(e.name==='AbortError')return}
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='finance-'+today()+'.json';a.click()}
 function importData(inp){const f=inp.files[0];if(!f)return;f.text().then(t=>{try{S=Object.assign(structuredClone(def),JSON.parse(t));save();render()}catch(e){alert('Неверный файл')}})}
 
 accrue();render();
