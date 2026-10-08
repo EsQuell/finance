@@ -146,6 +146,7 @@ function dayName(d){const t=today(),y=new Date(Date.now()-864e5).toISOString().s
 function addTx(){const sum=+NT.sum;if(!(sum>0))return alert('Введите сумму');const type=NT.type;
  const a=NT.acc||S.accounts[0]?.id,to=NT.to||S.accounts.find(x=>x.id!==a)?.id;
  if(type==='transfer'&&(!to||a===to))return alert('Выберите разные счета');
+ if(type!=='transfer'&&!S.cats[type].includes(NT.cat))NT.cat=S.cats[type][0]||'Прочее';
  S.tx.push({id:uid(),type,sum,date:NT.date||today(),acc:a,to:type==='transfer'?to:undefined,cat:type==='transfer'?'':NT.cat,note:NT.note});
  NT.sum='';NT.note='';save();render()}
 function delTx(id){const t=S.tx.find(x=>x.id===id);if(confirm(`Удалить операцию «${t.cat||'перевод'}» на ${fmt(t.sum)}?`)){S.tx=S.tx.filter(x=>x.id!==id);save();render()}}
