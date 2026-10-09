@@ -10,13 +10,20 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <style>
 :root{--bg:#f2f4f8;--card:#fff;--tx:#1a2030;--mut:#6b7385;--bd:#e3e6ee;--ac:#2f6fed;--ac2:#e8effe;--in:#14a05a;--in2:#e3f6ec;--out:#e0384f;--out2:#fde8eb;--sh:0 1px 2px rgba(20,30,60,.05),0 4px 16px rgba(20,30,60,.06)}
-@media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1b1e25;--tx:#e8eaf0;--mut:#9aa1b2;--bd:#2a2e37;--ac:#5b8cff;--ac2:#1f2a44;--in:#3ec97a;--in2:#16301f;--out:#ff6b81;--out2:#3a1c22;--sh:none}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111318;--card:#1b1e25;--tx:#e8eaf0;--mut:#9aa1b2;--bd:#2a2e37;--ac:#5b8cff;--ac2:#1f2a44;--in:#3ec97a;--in2:#16301f;--out:#ff6b81;--out2:#3a1c22;--sh:none;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111318;--card:#1b1e25;--tx:#e8eaf0;--mut:#9aa1b2;--bd:#2a2e37;--ac:#5b8cff;--ac2:#1f2a44;--in:#3ec97a;--in2:#16301f;--out:#ff6b81;--out2:#3a1c22;--sh:none;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx)}
 header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--bd);z-index:5;padding-top:env(safe-area-inset-top)}
-nav{display:flex;gap:6px;overflow-x:auto;padding:10px 16px;max-width:1100px;margin:auto;scrollbar-width:none}nav::-webkit-scrollbar{display:none}
-nav button{background:var(--bg);border:0;padding:9px 14px;border-radius:999px;color:var(--mut);cursor:pointer;white-space:nowrap;font:inherit;font-size:14px;font-weight:500}
-nav button.on{background:var(--ac);color:#fff}
+.top{display:flex;align-items:center;justify-content:space-between;max-width:1100px;margin:auto;padding:10px 8px 4px}
+.top h1{margin:0;font-size:18px;font-weight:700;text-align:center;flex:1}
+.arr{border:0;background:none;color:var(--mut);font-size:22px;width:44px;height:40px;border-radius:12px}.arr:active{background:var(--bg)}
+.dots{display:flex;justify-content:center;gap:6px;padding:0 0 10px}
+.dots button{width:7px;height:7px;padding:0;border:0;border-radius:4px;background:var(--bd);transition:width .2s,background .2s}
+.dots button.on{width:20px;background:var(--ac)}
+main{transition:transform .18s ease,opacity .18s ease;touch-action:pan-y}
+main.out-l{transform:translateX(-24px);opacity:0}main.out-r{transform:translateX(24px);opacity:0}
+.theme{display:flex;gap:8px}.theme button{flex:1}
 main{max-width:1100px;margin:auto;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
 .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:var(--sh);border:1px solid var(--bd)}
 h2{margin:0 0 14px;font-size:19px}h3{margin:0 0 10px;font-size:16px}
@@ -62,7 +69,7 @@ details summary{cursor:pointer;color:var(--ac);font-weight:600;font-size:14px;ma
 </style>
 </head>
 <body>
-<header><nav id="nav"></nav></header>
+<header><div class="top"><button class="arr" aria-label="Предыдущая вкладка" onclick="step(-1)">‹</button><h1 id="ttl"></h1><button class="arr" aria-label="Следующая вкладка" onclick="step(1)">›</button></div><div class="dots" id="nav"></div></header>
 <main id="app"></main>
 <script>
 const TABS=[['ops','Операции'],['acc','Счета'],['stat','Статистика'],['sal','Зарплата'],['obl','Платежи'],['goal','Накопления'],['set','Настройки']];
@@ -102,9 +109,31 @@ function accrue(){const now=today();
   a.lastAccrual=last}
  save()}
 
-function nav(){document.getElementById('nav').innerHTML=TABS.map(([k,t])=>`<button class="${S.tab===k?'on':''}" onclick="go('${k}')">${t}</button>`).join('')}
+function nav(){document.getElementById('nav').innerHTML=TABS.map(([k,t])=>`<button class="${S.tab===k?'on':''}" aria-label="${t}" onclick="go('${k}')"></button>`).join('');
+ document.getElementById('ttl').textContent=TABS.find(x=>x[0]===S.tab)[1]}
+// Переключение вкладок свайпом влево/вправо
+function step(d){const i=TABS.findIndex(x=>x[0]===S.tab),j=i+d;if(j<0||j>=TABS.length)return;
+ const m=document.getElementById('app');m.classList.add(d>0?'out-l':'out-r');
+ setTimeout(()=>{S.tab=TABS[j][0];save();render();scrollTo(0,0);m.classList.remove('out-l','out-r');m.classList.add(d>0?'out-r':'out-l');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>m.classList.remove('out-l','out-r')))},150)}
+let sw=null;
+document.addEventListener('touchstart',e=>{const t=e.target;
+ // не мешаем прокрутке графиков/таблиц и вводу
+ if(e.touches.length>1||t.closest('.scroll,input,select,textarea')){sw=null;return}
+ sw={x:e.touches[0].clientX,y:e.touches[0].clientY,t:Date.now()}},{passive:true});
+document.addEventListener('touchend',e=>{if(!sw)return;const p=e.changedTouches[0],dx=p.clientX-sw.x,dy=p.clientY-sw.y;
+ if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.6&&Date.now()-sw.t<700)step(dx<0?1:-1);sw=null},{passive:true});
+document.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea'))return;if(e.key==='ArrowRight')step(1);if(e.key==='ArrowLeft')step(-1)});
+function applyTheme(){const t=S.theme||'auto';
+ // в APK системную тему спрашиваем у Android: WebView сам её не сообщает
+ let sys=matchMedia('(prefers-color-scheme: dark)').matches;try{if(window.AndroidApp&&AndroidApp.isSystemDark)sys=AndroidApp.isSystemDark()}catch(e){}
+ const dark=t==='dark'||(t==='auto'&&sys);document.documentElement.dataset.theme=dark?'dark':'light';
+ document.querySelector('meta[name=theme-color]').content=dark?'#1b1e25':'#ffffff';
+ try{window.AndroidApp&&AndroidApp.setDark&&AndroidApp.setDark(dark)}catch(e){}}
+function setTheme(t){S.theme=t;save();applyTheme();render()}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
 function go(t){S.tab=t;save();render()}
-function render(){nav();document.getElementById('app').innerHTML=V[S.tab]()}
+function render(){applyTheme();nav();document.getElementById('app').innerHTML=V[S.tab]()}
 
 let F={from:today().slice(0,8)+'01',to:'',type:'',cat:'',acc:''};
 let NT={type:'expense',cat:'',sum:'',note:'',date:today(),acc:'',to:''};
@@ -396,7 +425,7 @@ V.sal=()=>{if(!SAL.next){const d=new Date(SAL.date);d.setMonth(d.getMonth()+1);S
  <tr><td>Оставить на расходы (${esc(acc(SAL.acc)?.name)})</td><td class="r">${fmt(Math.max(0,free))}</td></tr></table></div>`:'<p class="mut">Введите сумму — приложение распределит её по платежам, целям и свободным деньгам.</p>'}`};
 function salSave(){const sum=+SAL.sum;if(!(sum>0))return;S.tx.push({id:uid(),type:'income',date:SAL.date,sum,acc:SAL.acc,cat:'Зарплата',note:''});save();alert('Доход записан')}
 
-V.set=()=>`${['expense','income'].map(k=>`<div class="card"><h2>Категории ${k==='expense'?'расходов':'доходов'}</h2>
+V.set=()=>`<div class="card"><h2>Оформление</h2><div class="theme">${[['auto','Как в системе'],['light','Светлая'],['dark','Тёмная']].map(([k,t])=>`<button class="${(S.theme||'auto')===k?'b':'s'}" onclick="setTheme('${k}')">${t}</button>`).join('')}</div><p class="mut">Вкладки переключаются свайпом влево и вправо или стрелками в шапке.</p></div>${['expense','income'].map(k=>`<div class="card"><h2>Категории ${k==='expense'?'расходов':'доходов'}</h2>
  <p>${S.cats[k].map((c,i)=>`<button class="s" style="margin:2px" onclick="renCat('${k}',${i})">${esc(c)}</button>`).join('')}</p>
  <div class="row"><input id="nc_${k}" placeholder="Новая категория"><button class="b" onclick="addCat('${k}')">Добавить</button></div><p class="mut">Нажмите на категорию, чтобы переименовать или удалить.</p></div>`).join('')}
  <div class="card"><h2>Резервная копия</h2><p class="mut">Данные хранятся в этом браузере. Регулярно сохраняйте копию.</p>

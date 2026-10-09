@@ -25,6 +25,16 @@ public class MainActivity extends Activity {
     private static final String URL = "https://esquell.github.io/finance/";
     private static final int PICK_FILE = 1;
     private WebView web;
+    private FrameLayout root;
+
+    // Цвет строки состояния и навигации под тему приложения
+    private void applyBars(boolean dark) {
+        root.setBackgroundColor(dark ? Color.rgb(27, 30, 37) : Color.WHITE);
+        getWindow().setStatusBarColor(dark ? Color.rgb(27, 30, 37) : Color.WHITE);
+        getWindow().setNavigationBarColor(dark ? Color.rgb(17, 19, 24) : Color.rgb(242, 244, 248));
+        getWindow().getDecorView().setSystemUiVisibility(dark ? 0
+                : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+    }
     private ValueCallback<Uri[]> fileCallback;
 
     @Override
@@ -33,8 +43,7 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         // Отступы под строку состояния и навигации, чтобы вкладки не залезали под время и значки
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(dark ? Color.rgb(27, 30, 37) : Color.WHITE);
+        root = new FrameLayout(this);
         root.addView(web);
         root.setOnApplyWindowInsetsListener((v, in) -> {
             v.setPadding(in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(),
@@ -42,10 +51,7 @@ public class MainActivity extends Activity {
             return in.consumeSystemWindowInsets();
         });
         setContentView(root);
-        getWindow().setStatusBarColor(dark ? Color.rgb(27, 30, 37) : Color.WHITE);
-        getWindow().setNavigationBarColor(dark ? Color.rgb(17, 19, 24) : Color.rgb(242, 244, 248));
-        if (!dark) getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        applyBars(dark);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -87,6 +93,14 @@ public class MainActivity extends Activity {
     public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
 
     class Bridge {
+        @JavascriptInterface
+        public boolean isSystemDark() {
+            return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        }
+
+        @JavascriptInterface
+        public void setDark(boolean dark) { runOnUiThread(() -> applyBars(dark)); }
+
         // Сохраняет файл (резервную копию) в папку «Загрузки»
         @JavascriptInterface
         public void saveFile(String name, String content) {
