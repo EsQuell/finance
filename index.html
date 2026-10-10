@@ -23,6 +23,20 @@ header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(
 .dots button.on{width:20px;background:var(--ac)}
 main{transition:transform .18s ease,opacity .18s ease;touch-action:pan-y}
 main.out-l{transform:translateX(-24px);opacity:0}main.out-r{transform:translateX(24px);opacity:0}
+.modal{position:fixed;inset:0;background:rgba(10,14,25,.45);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;align-items:flex-end;justify-content:center;z-index:50;opacity:0;transition:opacity .2s}
+.modal.show{opacity:1}
+.sheet{background:var(--card);width:100%;max-width:480px;border-radius:22px 22px 0 0;padding:22px 18px calc(18px + env(safe-area-inset-bottom));max-height:88vh;overflow:auto;transform:translateY(40px);transition:transform .22s ease;box-shadow:0 -8px 40px rgba(0,0,0,.25)}
+.sheet::before{content:'';display:block;width:40px;height:4px;border-radius:2px;background:var(--bd);margin:-10px auto 14px}
+.modal.show .sheet{transform:none}
+@media (min-width:640px){.modal{align-items:center}.sheet{border-radius:22px}.sheet::before{display:none}}
+.dlg-form{display:flex;flex-direction:column;gap:12px}
+.dlg-text{font-size:16px;margin:0 0 4px}
+.hint{font-size:12px;color:var(--mut)}
+.dlg-btns{display:flex;gap:10px;margin-top:18px}.dlg-btns button{flex:1;min-height:48px;font-size:16px;border-radius:14px}
+button.b.danger{background:var(--out)}
+#toasts{position:fixed;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:8px;z-index:60;pointer-events:none}
+.toast{background:var(--tx);color:var(--card);padding:11px 18px;border-radius:14px;font-size:15px;max-width:90%;opacity:0;transform:translateY(10px);transition:all .25s;box-shadow:0 6px 24px rgba(0,0,0,.2)}
+.toast.show{opacity:1;transform:none}.toast.warn{background:var(--out);color:#fff}.toast.ok{background:var(--in);color:#fff}
 .theme{display:flex;gap:8px}.theme button{flex:1}
 main{max-width:1100px;margin:auto;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
 .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:var(--sh);border:1px solid var(--bd)}
@@ -111,6 +125,36 @@ function accrue(){const now=today();
 
 function nav(){document.getElementById('nav').innerHTML=TABS.map(([k,t])=>`<button class="${S.tab===k?'on':''}" aria-label="${t}" onclick="go('${k}')"></button>`).join('');
  document.getElementById('ttl').textContent=TABS.find(x=>x[0]===S.tab)[1]}
+// Свои окна вместо системных prompt/confirm/alert
+function toast(msg,kind){let box=document.getElementById('toasts');
+ if(!box){box=document.createElement('div');box.id='toasts';document.body.appendChild(box)}
+ const t=document.createElement('div');t.className='toast '+(kind||'');t.textContent=msg;box.appendChild(t);
+ requestAnimationFrame(()=>t.classList.add('show'));setTimeout(()=>{t.classList.remove('show');setTimeout(()=>t.remove(),250)},2600)}
+window.alert=m=>toast(m,'warn');
+function sheet(inner,onKey){return new Promise(res=>{
+ const m=document.createElement('div');m.className='modal';m.innerHTML=`<div class="sheet" role="dialog" aria-modal="true">${inner}</div>`;
+ document.body.appendChild(m);document.body.style.overflow='hidden';
+ requestAnimationFrame(()=>m.classList.add('show'));
+ const close=v=>{m.classList.remove('show');document.body.style.overflow='';document.removeEventListener('keydown',kd);setTimeout(()=>m.remove(),220);res(v)};
+ const kd=e=>{if(e.key==='Escape')close(null);else if(onKey)onKey(e,close,m)};document.addEventListener('keydown',kd);
+ m.addEventListener('click',e=>{if(e.target===m)close(null);const b=e.target.closest('[data-r]');if(b)b.dataset.r==='ok'?onOk(close,m):close(b.dataset.r==='cancel'?null:b.dataset.r)});
+ let onOk=(c)=>c(true);m._setOk=f=>onOk=f;
+ m._close=close;sheet.cur=m;
+ setTimeout(()=>{const f=m.querySelector('input,select');if(f&&!('ontouchstart' in window))f.focus()},60)})}
+function confirmDlg(text,{ok='Да',cancel='Отмена',danger=false,title=''}={}){
+ const p=sheet(`${title?`<h2>${esc(title)}</h2>`:''}<p class="dlg-text">${esc(text).replace(/\n/g,'<br>')}</p>
+ <div class="dlg-btns"><button class="s" data-r="cancel">${esc(cancel)}</button><button class="b ${danger?'danger':''}" data-r="ok">${esc(ok)}</button></div>`);
+ return p.then(v=>!!v)}
+// fields: [{k,label,type:'text'|'number'|'date'|'select',value,options:[[v,t]],hint}]
+function formDlg(title,fields,{ok='Сохранить',sub=''}={}){
+ const p=sheet(`<h2>${esc(title)}</h2>${sub?`<p class="mut" style="margin-top:-8px">${esc(sub)}</p>`:''}<form class="dlg-form" onsubmit="return false">
+ ${fields.map(f=>`<label>${esc(f.label)}${f.type==='select'?`<select name="${f.k}">${opts(f.options,f.value)}</select>`:
+  `<input name="${f.k}" type="${f.type||'text'}" ${f.type==='number'?'step="any" inputmode="decimal"':''} value="${esc(f.value??'')}" placeholder="${esc(f.ph||'')}">`}
+  ${f.hint?`<span class="hint">${esc(f.hint)}</span>`:''}</label>`).join('')}</form>
+ <div class="dlg-btns"><button class="s" data-r="cancel">Отмена</button><button class="b" data-r="ok">${esc(ok)}</button></div>`,
+ (e,close,m)=>{if(e.key==='Enter'&&e.target.tagName==='INPUT')m.querySelector('[data-r=ok]').click()});
+ sheet.cur._setOk((close,m)=>{const o={};m.querySelectorAll('[name]').forEach(el=>o[el.name]=el.value);close(o)});
+ return p}
 // Переключение вкладок свайпом влево/вправо
 function step(d){const i=TABS.findIndex(x=>x[0]===S.tab),j=i+d;if(j<0||j>=TABS.length)return;
  const m=document.getElementById('app');m.classList.add(d>0?'out-l':'out-r');
@@ -119,7 +163,7 @@ function step(d){const i=TABS.findIndex(x=>x[0]===S.tab),j=i+d;if(j<0||j>=TABS.l
 let sw=null;
 document.addEventListener('touchstart',e=>{const t=e.target;
  // не мешаем прокрутке графиков/таблиц и вводу
- if(e.touches.length>1||t.closest('.scroll,input,select,textarea')){sw=null;return}
+ if(e.touches.length>1||t.closest('.scroll,input,select,textarea,.modal')){sw=null;return}
  sw={x:e.touches[0].clientX,y:e.touches[0].clientY,t:Date.now()}},{passive:true});
 document.addEventListener('touchend',e=>{if(!sw)return;const p=e.changedTouches[0],dx=p.clientX-sw.x,dy=p.clientY-sw.y;
  if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.6&&Date.now()-sw.t<700)step(dx<0?1:-1);sw=null},{passive:true});
@@ -181,7 +225,7 @@ function addTx(){const sum=+NT.sum;if(!(sum>0))return alert('Введите су
  NT={type,cat:NT.cat,sum:'',note:'',date:today(),acc:NT.acc,to:NT.to};save();render()}
 function editTx(id){const t=S.tx.find(x=>x.id===id);NT={type:t.type,cat:t.cat,sum:t.sum,note:t.note||'',date:t.date,acc:t.acc,to:t.to||'',edit:id};render();scrollTo({top:0,behavior:'smooth'})}
 function cancelEdit(){NT={type:NT.type,cat:'',sum:'',note:'',date:today(),acc:'',to:''};render()}
-function delTx(id){const t=S.tx.find(x=>x.id===id);if(confirm(`Удалить операцию «${t.cat||'перевод'}» на ${fmt(t.sum)}?`)){S.tx=S.tx.filter(x=>x.id!==id);if(NT.edit===id)NT.edit='';save();render()}}
+async function delTx(id){const t=S.tx.find(x=>x.id===id);if(await confirmDlg(`«${t.cat||'Перевод'}» на ${fmt(t.sum)}, ${new Date(t.date+"T12:00").toLocaleDateString("ru-RU")}`,{title:'Удалить операцию?',ok:'Удалить',danger:true})){S.tx=S.tx.filter(x=>x.id!==id);if(NT.edit===id)NT.edit='';save();render();toast('Операция удалена')}}
 
 const TYPES={card:'Карта',cash:'Наличные',deposit:'Вклад / накопительный',credit:'Кредитка'};
 const addDays=(d,n)=>{const x=new Date(d+'T12:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
@@ -231,16 +275,19 @@ function addAcc(){const name=val('aName').trim();if(!name)return alert('Назв
  let start=+val('aStart')||0;if(type==='credit')start=-Math.abs(start);
  S.accounts.push({id:uid(),name,type,start,startDate:d,rate:+val('aRate')||0,cap:val('aCap'),lastAccrual:d,
   limit:+val('aLimit')||0,grace:+val('aGrace')||0,graceFrom:val('aGraceFrom')||''});accrue();render()}
-function editAcc(id){const a=acc(id);const n=prompt('Название',a.name);if(n===null)return;a.name=n||a.name;
- const cr=a.type==='credit',cur=balance(id);
- const fact=prompt(cr?'Фактический долг сейчас (для сверки, пусто — не менять)':'Фактический остаток сейчас (для сверки, пусто — не менять)',(cr?Math.max(0,-cur):cur).toFixed(2));
- if(fact!==null&&fact!==''){const target=cr?-Math.abs(+fact):+fact;if(Math.abs(target-cur)>0.004)a.start+=target-cur}
- if(a.type==='deposit'){const r=prompt('Ставка % годовых',a.rate);if(r!==null)a.rate=+r}
- if(cr){const l=prompt('Кредитный лимит',a.limit||'');if(l!==null)a.limit=+l||0;
-  const g=prompt('Льготный период, дней',a.grace||'');if(g!==null)a.grace=+g||0;
-  const gf=prompt('Дата начала текущего льготного периода, ГГГГ-ММ-ДД (пусто — считать по операциям)',a.graceFrom||'');if(gf!==null)a.graceFrom=/^\d{4}-\d\d-\d\d$/.test(gf)?gf:''}
- save();render()}
-function delAcc(id){if(S.tx.some(t=>t.acc===id||t.to===id))return alert('По счёту есть операции');if(confirm('Удалить счёт?')){S.accounts=S.accounts.filter(a=>a.id!==id);save();render()}}
+async function editAcc(id){const a=acc(id),cr=a.type==='credit',cur=balance(id);
+ const f=[{k:'name',label:'Название',value:a.name},
+  {k:'fact',label:cr?'Фактический долг сейчас':'Фактический остаток сейчас',type:'number',value:(cr?Math.max(0,-cur):cur).toFixed(2),hint:'Для сверки с банком: баланс подстроится под эту сумму'}];
+ if(a.type==='deposit')f.push({k:'rate',label:'Ставка, % годовых',type:'number',value:a.rate},{k:'cap',label:'Капитализация',type:'select',value:a.cap,options:[['monthly','Ежемесячно'],['daily','Ежедневно']]});
+ if(cr)f.push({k:'limit',label:'Кредитный лимит',type:'number',value:a.limit||''},{k:'grace',label:'Льготный период, дней',type:'number',value:a.grace||''},
+  {k:'graceFrom',label:'Начало текущего льготного периода',type:'date',value:a.graceFrom||'',hint:'Пусто — считать по операциям'});
+ const r=await formDlg('Счёт «'+a.name+'»',f);if(!r)return;
+ a.name=r.name.trim()||a.name;
+ if(r.fact!==''){const target=cr?-Math.abs(+r.fact):+r.fact;if(Math.abs(target-cur)>0.004)a.start+=target-cur}
+ if(a.type==='deposit'){a.rate=+r.rate||0;a.cap=r.cap}
+ if(cr){a.limit=+r.limit||0;a.grace=+r.grace||0;a.graceFrom=r.graceFrom||''}
+ save();render();toast('Сохранено','ok')}
+async function delAcc(id){if(S.tx.some(t=>t.acc===id||t.to===id))return alert('По счёту есть операции — сначала удалите их');if(await confirmDlg('Счёт «'+acc(id).name+'» будет удалён.',{title:'Удалить счёт?',ok:'Удалить',danger:true})){S.accounts=S.accounts.filter(a=>a.id!==id);save();render()}}
 
 let SF={from:today().slice(0,5)+'01-01',to:today(),acc:''};
 const PAL=['#2f6fed','#e0384f','#f2a516','#14a05a','#8b5cf6','#06b6d4','#ec4899','#9aa1b2'];
@@ -351,14 +398,15 @@ V.obl=()=>{const t=new Date().getDate(),m=curMonth();
  <button class="b" onclick="addObl()">Добавить</button></div></div>`};
 function addObl(){const sum=+val('oSum'),day=+val('oDay');if(!val('oName')||!(sum>0)||!(day>=1&&day<=31))return alert('Заполните название, сумму и день');
  const type=val('oType');S.obl.push({id:uid(),name:val('oName'),type,sum,day,acc:val('oAcc'),debt:type==='loan'?+val('oDebt')||0:0,rate:type==='loan'?+val('oRate')||0:0,intPaid:0});save();render()}
-function editObl(id){const o=S.obl.find(x=>x.id===id);
- const n=prompt('Название',o.name);if(n===null)return;o.name=n||o.name;
- const s=prompt('Сумма платежа',o.sum);if(s!==null&&+s>0)o.sum=+s;
- const d=prompt('День месяца',o.day);if(d!==null&&+d>=1&&+d<=31)o.day=+d;
- if(o.type==='loan'){const p=prompt('Остаток долга (по данным банка)',o.debt||'');if(p!==null)o.debt=+p||0;
-  const r=prompt('Ставка, % годовых',o.rate||'');if(r!==null)o.rate=+r||0}
- save();render()}
-function delObl(id){if(confirm('Удалить платёж из списка?')){S.obl=S.obl.filter(o=>o.id!==id);save();render()}}
+async function editObl(id){const o=S.obl.find(x=>x.id===id);
+ const f=[{k:'name',label:'Название',value:o.name},{k:'sum',label:'Сумма платежа',type:'number',value:o.sum},
+  {k:'day',label:'День месяца',type:'number',value:o.day},{k:'acc',label:'Со счёта',type:'select',value:o.acc,options:S.accounts.map(a=>[a.id,a.name])}];
+ if(o.type==='loan')f.push({k:'debt',label:'Остаток долга',type:'number',value:o.debt||'',hint:'По данным банка'},{k:'rate',label:'Ставка, % годовых',type:'number',value:o.rate||''});
+ const r=await formDlg(OT[o.type]+' «'+o.name+'»',f);if(!r)return;
+ o.name=r.name.trim()||o.name;if(+r.sum>0)o.sum=+r.sum;if(+r.day>=1&&+r.day<=31)o.day=+r.day;o.acc=r.acc;
+ if(o.type==='loan'){o.debt=+r.debt||0;o.rate=+r.rate||0}
+ save();render();toast('Сохранено','ok')}
+async function delObl(id){const o=S.obl.find(x=>x.id===id);if(await confirmDlg('«'+o.name+'» исчезнет из списка платежей. Уже записанные расходы останутся.',{title:'Удалить платёж?',ok:'Удалить',danger:true})){S.obl=S.obl.filter(x=>x.id!==id);save();render()}}
 function unpayObl(id){const o=S.obl.find(x=>x.id===id);
  if(o.lastPay&&o.lastPay.m===o.paid){o.debt=(+o.debt||0)+o.lastPay.principal;o.intPaid=(+o.intPaid||0)-o.lastPay.interest;delete o.lastPay}
  delete o.paid;save();render()}
@@ -369,12 +417,12 @@ function payObl(id,record){const o=S.obl.find(x=>x.id===id);o.paid=curMonth();
   if(!S.cats.expense.includes(cat))S.cats.expense.push(cat);
   S.tx.push({id:uid(),type:'expense',date:today(),sum:o.sum,acc:o.acc,cat,note:o.name})}
  save();render()}
-function loanEarly(id,mode,A2){const o=S.obl.find(x=>x.id===id);const x=Math.min(+LE.x,+o.debt);if(!(x>0))return;
- const rec=confirm(`Списать ${fmt(x)} со счёта «${acc(o.acc)?.name}» как расход?\nОтмена — только уменьшить долг, без записи расхода.`);
+async function loanEarly(id,mode,A2){const o=S.obl.find(x=>x.id===id);const x=Math.min(+LE.x,+o.debt);if(!(x>0))return;
+ const rec=await sheet(`<h2>Досрочное погашение ${fmt(x)}</h2><p class="dlg-text">Записать эту сумму как расход со счёта «${esc(acc(o.acc)?.name)}»?</p><div class="dlg-btns"><button class="s" data-r="cancel">Только уменьшить долг</button><button class="b" data-r="ok">Записать расход</button></div>`);
  o.debt=Math.round((o.debt-x)*100)/100;if(mode==='pay')o.sum=Math.round(A2*100)/100;
  if(rec){if(!S.cats.expense.includes('Кредиты'))S.cats.expense.push('Кредиты');S.tx.push({id:uid(),type:'expense',date:today(),sum:x,acc:o.acc,cat:'Кредиты',note:'Досрочное погашение: '+o.name})}
- if(o.debt<=0&&confirm('Кредит закрыт! Убрать его из списка платежей?'))S.obl=S.obl.filter(q=>q.id!==id);
- LE={id:'',x:''};save();render()}
+ if(o.debt<=0&&await confirmDlg('Поздравляем! Убрать его из списка платежей?',{title:'Кредит закрыт 🎉',ok:'Убрать',cancel:'Оставить'}))S.obl=S.obl.filter(q=>q.id!==id);
+ LE={id:'',x:''};save();render();toast('Долг уменьшен','ok')}
 
 // Накопления: ежемесячный взнос с учётом процентов (аннуитет)
 function goalCalc(g){const a=g.acc&&acc(g.acc);const cur=a?balance(a.id):(+g.saved||0);
@@ -394,8 +442,8 @@ V.goal=()=>`<div class="card"><h2>Цели</h2><div class="grid">${S.goals.map(g
  <button class="b" onclick="addGoal()">Добавить</button></div>
  <p class="mut">Если копите на вкладе — выберите его счёт: текущая сумма берётся из баланса, а расчёт взноса учитывает ставку и капитализацию. Проценты зачисляются автоматически.</p></div>`;
 function addGoal(){const t=+val('gT'),d=val('gD');if(!val('gName')||!(t>0)||!d)return alert('Заполните все поля');S.goals.push({id:uid(),name:val('gName'),target:t,date:d,acc:val('gA'),saved:0});save();render()}
-function goalAdd(id){const g=S.goals.find(x=>x.id===id);const v=+prompt('Сколько внести?');if(v){g.saved=(+g.saved||0)+v;save();render()}}
-function delGoal(id){if(confirm('Удалить цель?')){S.goals=S.goals.filter(g=>g.id!==id);save();render()}}
+async function goalAdd(id){const g=S.goals.find(x=>x.id===id);const r=await formDlg('Внести в «'+g.name+'»',[{k:'v',label:'Сумма',type:'number',value:''}],{ok:'Внести'});if(r&&+r.v){g.saved=(+g.saved||0)+ +r.v;save();render();toast('Внесено '+fmt(+r.v),'ok')}}
+async function delGoal(id){if(await confirmDlg('Цель «'+S.goals.find(g=>g.id===id).name+'» будет удалена.',{title:'Удалить цель?',ok:'Удалить',danger:true})){S.goals=S.goals.filter(g=>g.id!==id);save();render()}}
 
 // Зарплата: распределение
 let SAL={sum:'',date:today(),next:'',acc:S.accounts[0]?.id};
@@ -423,7 +471,7 @@ V.sal=()=>{if(!SAL.next){const d=new Date(SAL.date);d.setMonth(d.getMonth()+1);S
  ${free<0?'<p class="out">Не хватает! Пересмотрите сроки целей или расходы.</p>':`<p>≈ <b>${fmt(free/days)}</b> в день · <b>${fmt(free/days*7)}</b> в неделю (${Math.round(days)} дн.)</p>`}</div>
  <div class="card"><h3>Куда сколько перевести</h3><table>${Object.entries(byAcc).map(([k,v])=>`<tr><td>${k==='_'?'Отложить отдельно (наличные/вне счетов)':esc(acc(k)?.name)}</td><td class="r">${fmt(v)}</td></tr>`).join('')}
  <tr><td>Оставить на расходы (${esc(acc(SAL.acc)?.name)})</td><td class="r">${fmt(Math.max(0,free))}</td></tr></table></div>`:'<p class="mut">Введите сумму — приложение распределит её по платежам, целям и свободным деньгам.</p>'}`};
-function salSave(){const sum=+SAL.sum;if(!(sum>0))return;S.tx.push({id:uid(),type:'income',date:SAL.date,sum,acc:SAL.acc,cat:'Зарплата',note:''});save();alert('Доход записан')}
+function salSave(){const sum=+SAL.sum;if(!(sum>0))return;S.tx.push({id:uid(),type:'income',date:SAL.date,sum,acc:SAL.acc,cat:'Зарплата',note:''});save();toast('Доход записан','ok')}
 
 V.set=()=>`<div class="card"><h2>Оформление</h2><div class="theme">${[['auto','Как в системе'],['light','Светлая'],['dark','Тёмная']].map(([k,t])=>`<button class="${(S.theme||'auto')===k?'b':'s'}" onclick="setTheme('${k}')">${t}</button>`).join('')}</div><p class="mut">Вкладки переключаются свайпом влево и вправо или стрелками в шапке.</p></div>${['expense','income'].map(k=>`<div class="card"><h2>Категории ${k==='expense'?'расходов':'доходов'}</h2>
  <p>${S.cats[k].map((c,i)=>`<button class="s" style="margin:2px" onclick="renCat('${k}',${i})">${esc(c)}</button>`).join('')}</p>
@@ -431,13 +479,16 @@ V.set=()=>`<div class="card"><h2>Оформление</h2><div class="theme">${[
  <div class="card"><h2>Резервная копия</h2><p class="mut">Данные хранятся в этом браузере. Регулярно сохраняйте копию.</p>
  <div class="row"><button class="b" onclick="exportData()">Скачать JSON</button><label>Загрузить<input type="file" accept=".json" onchange="importData(this)"></label></div></div>`;
 function addCat(k){const v=val('nc_'+k).trim();if(v&&!S.cats[k].includes(v)){S.cats[k].push(v);save();render()}}
-function renCat(k,i){const old=S.cats[k][i];const n=prompt('Новое имя (пусто — удалить)',old);if(n===null)return;
- if(n===''){S.cats[k].splice(i,1)}else{S.cats[k][i]=n;S.tx.forEach(t=>{if(t.cat===old&&t.type===k)t.cat=n})}save();render()}
+async function renCat(k,i){const old=S.cats[k][i];
+ const r=await sheet(`<h2>Категория</h2><form class="dlg-form" onsubmit="return false"><label>Название<input name="n" value="${esc(old)}"></label></form>
+ <div class="dlg-btns"><button class="s" data-r="del" style="color:var(--out)">Удалить</button><button class="b" data-r="ok">Сохранить</button></div>`);
+ if(r===true){const n=sheet.cur.querySelector('[name=n]').value.trim();if(n&&n!==old){S.cats[k][i]=n;S.tx.forEach(t=>{if(t.cat===old&&t.type===k)t.cat=n});save();render();toast('Переименовано','ok')}}
+ else if(r==='del'&&await confirmDlg('Категория «'+old+'» исчезнет из списка. Старые операции сохранят её название.',{title:'Удалить категорию?',ok:'Удалить',danger:true})){S.cats[k].splice(i,1);save();render()}}
 async function exportData(){const name='finance-'+today()+'.json',txt=JSON.stringify(S,null,1);
  if(window.AndroidApp)return AndroidApp.saveFile(name,txt);
  try{const f=new File([txt],name,{type:'application/json'});if(navigator.canShare&&navigator.canShare({files:[f]}))return await navigator.share({files:[f],title:name})}catch(e){if(e.name==='AbortError')return}
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='finance-'+today()+'.json';a.click()}
-function importData(inp){const f=inp.files[0];if(!f)return;f.text().then(t=>{try{S=Object.assign(structuredClone(def),JSON.parse(t));save();render()}catch(e){alert('Неверный файл')}})}
+function importData(inp){const f=inp.files[0];if(!f)return;f.text().then(t=>{try{S=Object.assign(structuredClone(def),JSON.parse(t));save();render();toast('Данные загружены','ok')}catch(e){alert('Неверный файл')}})}
 
 accrue();render();
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(r=>r.update());let rl;navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!rl){rl=1;location.reload()}})}
