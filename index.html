@@ -445,35 +445,79 @@ function addGoal(){const t=+val('gT'),d=val('gD');if(!val('gName')||!(t>0)||!d)r
 async function goalAdd(id){const g=S.goals.find(x=>x.id===id);const r=await formDlg('Внести в «'+g.name+'»',[{k:'v',label:'Сумма',type:'number',value:''}],{ok:'Внести'});if(r&&+r.v){g.saved=(+g.saved||0)+ +r.v;save();render();toast('Внесено '+fmt(+r.v),'ok')}}
 async function delGoal(id){if(await confirmDlg('Цель «'+S.goals.find(g=>g.id===id).name+'» будет удалена.',{title:'Удалить цель?',ok:'Удалить',danger:true})){S.goals=S.goals.filter(g=>g.id!==id);save();render()}}
 
-// Зарплата: распределение
-let SAL={sum:'',date:today(),next:'',acc:S.accounts[0]?.id};
-V.sal=()=>{if(!SAL.next){const d=new Date(SAL.date);d.setMonth(d.getMonth()+1);SAL.next=d.toISOString().slice(0,10)}
- const sum=+SAL.sum||0;
- // платежи, дни которых попадают в период до следующей зарплаты
- const inPeriod=o=>{const s=new Date(SAL.date),e=new Date(SAL.next);for(let d=new Date(s);d<e;d.setDate(d.getDate()+1))if(d.getDate()===Math.min(o.day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()))return d.toISOString().slice(0,10);return null};
- const obl=S.obl.filter(o=>!o.until||o.until>=SAL.date).map(o=>({...o,when:inPeriod(o)})).filter(o=>o.when&&o.paid!==o.when.slice(0,7));
- S.accounts.filter(x=>x.type==='credit').forEach(x=>{const c=creditInfo(x);if(c.debt>0&&c.due&&c.due<SAL.next)obl.unshift({name:'Погасить кредитку «'+x.name+'» (льготный период)',sum:c.debt,acc:x.id,when:c.due})});
- const goals=S.goals.map(g=>({g,c:goalCalc(g)})).filter(x=>x.c.pmt>0);
- const oSum=obl.reduce((s,o)=>s+o.sum,0),gSum=goals.reduce((s,x)=>s+x.c.pmt,0),free=sum-oSum-gSum;
- const days=Math.max(1,(new Date(SAL.next)-new Date(SAL.date))/864e5);
- const byAcc={};obl.forEach(o=>byAcc[o.acc]=(byAcc[o.acc]||0)+o.sum);goals.forEach(x=>{const k=x.g.acc||'_';byAcc[k]=(byAcc[k]||0)+x.c.pmt});
- return `<div class="card"><h2>Расчёт зарплаты</h2><div class="row">
- <label>Сумма<input type="number" value="${SAL.sum}" onchange="SAL.sum=this.value;render()"></label>
- <label>Дата получения<input type="date" value="${SAL.date}" onchange="SAL.date=this.value;SAL.next='';render()"></label>
- <label>Следующая зарплата<input type="date" value="${SAL.next}" onchange="SAL.next=this.value;render()"></label>
+// Зарплата: распределение с учётом графика выплат.
+// Каждый платёж делится поровну между зарплатами, которые приходят в его «окне» —
+// от предыдущего срока платежа (не включая) до текущего срока (включая).
+const iso=d=>d.toISOString().slice(0,10);
+const dayIn=(y,m,day)=>iso(new Date(Date.UTC(y,m,Math.min(day,new Date(Date.UTC(y,m+1,0)).getUTCDate()))));
+// даты зарплат в интервале (from, to]
+function paydaysIn(from,to){const days=(S.paydays||[]).map(p=>+p.day).filter(Boolean);if(!days.length)return [];
+ const r=[];const f=new Date(from+'T00:00Z');let y=f.getUTCFullYear(),m=f.getUTCMonth()-1;
+ for(let k=0;k<40;k++){for(const d of days){const x=dayIn(y,m,d);if(x>from&&x<=to)r.push(x)}m++;if(m>11){m=0;y++}if(dayIn(y,m,1)>to)break}
+ return [...new Set(r)].sort()}
+const nextPayday=after=>paydaysIn(after,addDays(after,62))[0]||null;
+const lastPayday=onOrBefore=>{const r=paydaysIn(addDays(onOrBefore,-62),onOrBefore);return r[r.length-1]||null};
+// ближайший срок платежа не раньше даты
+function nextDue(o,from){const f=new Date(from+'T00:00Z');let d=dayIn(f.getUTCFullYear(),f.getUTCMonth(),o.day);
+ if(d<from){d=dayIn(f.getUTCFullYear(),f.getUTCMonth()+1,o.day)}return d}
+function prevDue(o,due){const f=new Date(due+'T00:00Z');return dayIn(f.getUTCFullYear(),f.getUTCMonth()-1,o.day)}
+let SAL={sum:'',date:'',acc:S.accounts[0]?.id};
+function salPlan(){const date=SAL.date,hasSched=(S.paydays||[]).length>0;
+ const next=hasSched?nextPayday(date):addDays(date,30);
+ const items=[];
+ for(const o of S.obl){if(o.until&&o.until<date)continue;
+  // если платёж этого месяца уже оплачен — смотрим на следующий срок
+  let due=nextDue(o,date);if(o.paid===due.slice(0,7))due=nextDue(o,addDays(due,1));
+  if(o.until&&due>o.until)continue;
+  let parts,idx;
+  if(hasSched){const win=paydaysIn(prevDue(o,due),due);parts=Math.max(1,win.length);idx=Math.max(0,win.filter(p=>p<date).length)}
+  else{parts=1;idx=0;if(due>=next)continue}
+  items.push({name:o.name,acc:o.acc,due,full:o.sum,share:o.sum/parts,parts,idx:Math.min(idx+1,parts)})}
+ // кредитки: оставшийся долг делим на зарплаты до конца льготного периода
+ S.accounts.filter(x=>x.type==='credit').forEach(x=>{const c=creditInfo(x);if(!(c.debt>0)||!c.due)return;
+  const k=hasSched?1+paydaysIn(date,c.due).length:(c.due<next?1:0);if(!k)return;
+  items.unshift({name:'Кредитка «'+x.name+'» до конца льготного периода',acc:x.id,due:c.due,full:c.debt,share:c.debt/k,parts:k,idx:1,credit:1})});
+ // цели: месячный взнос делим на количество зарплат в месяце
+ const perMonth=hasSched?S.paydays.length:1;
+ const goals=S.goals.map(g=>({g,c:goalCalc(g)})).filter(x=>x.c.pmt>0).map(x=>({...x,share:x.c.pmt/perMonth}));
+ return {next,items:items.sort((a,b)=>a.due.localeCompare(b.due)),goals,hasSched}}
+V.sal=()=>{if(!SAL.date)SAL.date=(S.paydays||[]).length?(lastPayday(today())||today()):today();
+ const sum=+SAL.sum||0,P=salPlan(),days=Math.max(1,(new Date(P.next)-new Date(SAL.date))/864e5);
+ const oSum=P.items.reduce((s,o)=>s+o.share,0),gSum=P.goals.reduce((s,x)=>s+x.share,0),free=sum-oSum-gSum;
+ const byAcc={};P.items.forEach(o=>byAcc[o.acc]=(byAcc[o.acc]||0)+o.share);P.goals.forEach(x=>{const k=x.g.acc||'_';byAcc[k]=(byAcc[k]||0)+x.share});
+ const dd=d=>new Date(d+'T12:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
+ return `<div class="card"><h2>Расчёт зарплаты</h2>
+ ${P.hasSched?'':`<p class="mut" style="margin-top:-6px">Укажите дни зарплаты в «Настройках» — тогда платежи будут делиться между несколькими зарплатами.</p>`}
+ <div class="row">
+ <label>Сумма<input type="number" inputmode="decimal" value="${SAL.sum}" onchange="SAL.sum=this.value;render()"></label>
+ <label>Дата получения<input type="date" value="${SAL.date}" onchange="SAL.date=this.value;render()"></label>
  <label>На какой счёт пришла<select onchange="SAL.acc=this.value">${accOpts(SAL.acc)}</select></label>
- <button class="b" onclick="salSave()">Записать доход</button></div></div>
- ${sum?`<div class="card"><h3>1. Обязательные платежи до ${SAL.next}: <span class="out">${fmt(oSum)}</span></h3><table>
- ${obl.map(o=>`<tr><td>${esc(o.name)}</td><td class="mut">${o.when}</td><td>${esc(acc(o.acc)?.name)}</td><td class="r">${fmt(o.sum)}</td></tr>`).join('')||'<tr><td class="mut">Нет</td></tr>'}</table></div>
- <div class="card"><h3>2. В накопления: <span class="in">${fmt(gSum)}</span></h3><table>
- ${goals.map(x=>`<tr><td>${esc(x.g.name)}</td><td>${x.g.acc?esc(acc(x.g.acc)?.name):'отдельно'}</td><td class="r">${fmt(x.c.pmt)}</td></tr>`).join('')||'<tr><td class="mut">Нет целей</td></tr>'}</table></div>
+ <button class="b" onclick="salSave()">Записать доход</button></div>
+ <p class="mut">Следующая зарплата: <b>${dd(P.next)}</b> · ${Math.round(days)} дн.</p></div>
+ ${sum?`<div class="card"><h3>1. Отложить на платежи: <span class="out">${fmt(oSum)}</span></h3><div class="list">
+ ${P.items.map(o=>`<div class="item"><div class="t"><div>${esc(o.name)}</div><div class="mut">${fmt(o.full)} к ${dd(o.due)} · ${esc(acc(o.acc)?.name)}${o.parts>1?` · ${o.credit?'делим на '+o.parts+' зарплаты':'часть '+o.idx+' из '+o.parts}`:''}</div>
+ ${o.parts>1?`<div class="bar" style="margin-top:6px"><i style="width:${o.idx/o.parts*100}%"></i></div>`:''}</div><div class="v">${fmt(o.share)}</div></div>`).join('')||'<p class="mut">Ничего не нужно</p>'}</div></div>
+ <div class="card"><h3>2. В накопления: <span class="in">${fmt(gSum)}</span></h3><div class="list">
+ ${P.goals.map(x=>`<div class="item"><div class="t"><div>${esc(x.g.name)}</div><div class="mut">${x.g.acc?esc(acc(x.g.acc)?.name):'отдельно'}${P.hasSched&&S.paydays.length>1?' · '+fmt(x.c.pmt)+' в месяц / '+S.paydays.length:''}</div></div><div class="v">${fmt(x.share)}</div></div>`).join('')||'<p class="mut">Нет целей</p>'}</div></div>
  <div class="card"><h3>3. Свободно на жизнь: <span class="${free<0?'out':'in'}">${fmt(free)}</span></h3>
- ${free<0?'<p class="out">Не хватает! Пересмотрите сроки целей или расходы.</p>':`<p>≈ <b>${fmt(free/days)}</b> в день · <b>${fmt(free/days*7)}</b> в неделю (${Math.round(days)} дн.)</p>`}</div>
+ ${free<0?'<p class="out">Не хватает! Пересмотрите сроки целей или расходы.</p>':`<p>≈ <b>${fmt(free/days)}</b> в день · <b>${fmt(free/days*7)}</b> в неделю до следующей зарплаты</p>`}</div>
  <div class="card"><h3>Куда сколько перевести</h3><table>${Object.entries(byAcc).map(([k,v])=>`<tr><td>${k==='_'?'Отложить отдельно (наличные/вне счетов)':esc(acc(k)?.name)}</td><td class="r">${fmt(v)}</td></tr>`).join('')}
- <tr><td>Оставить на расходы (${esc(acc(SAL.acc)?.name)})</td><td class="r">${fmt(Math.max(0,free))}</td></tr></table></div>`:'<p class="mut">Введите сумму — приложение распределит её по платежам, целям и свободным деньгам.</p>'}`};
-function salSave(){const sum=+SAL.sum;if(!(sum>0))return;S.tx.push({id:uid(),type:'income',date:SAL.date,sum,acc:SAL.acc,cat:'Зарплата',note:''});save();toast('Доход записан','ok')}
+ <tr><td>Оставить на расходы (${esc(acc(SAL.acc)?.name)})</td><td class="r">${fmt(Math.max(0,free))}</td></tr></table>
+ <p class="mut">Деньги на платежи, которые будут позже, лучше держать на отдельном счёте — например, на накопительном.</p></div>`:'<p class="mut">Введите сумму — приложение распределит её по платежам, целям и свободным деньгам.</p>'}`};
+function salSave(){const sum=+SAL.sum;if(!(sum>0))return alert('Введите сумму');S.tx.push({id:uid(),type:'income',date:SAL.date,sum,acc:SAL.acc,cat:'Зарплата',note:''});save();toast('Доход записан','ok')}
+// Настройки: дни зарплаты
+function paydayCard(){const P=S.paydays||[];
+ return `<div class="card"><h2>Дни зарплаты</h2>
+ <div class="list">${P.map((p,i)=>`<div class="item"><div class="ico income">${p.day}</div><div class="t"><div>${esc(p.name||'Зарплата')}</div><div class="mut">${p.day}-го числа каждого месяца</div></div><button class="del" aria-label="Удалить" onclick="delPayday(${i})">🗑</button></div>`).join('')||'<p class="mut">Пока не указаны</p>'}</div>
+ <div class="row" style="margin-top:10px"><label>День<input id="pdDay" type="number" min="1" max="31" inputmode="numeric"></label><label>Название<input id="pdName" placeholder="Аванс / Зарплата"></label><button class="b" onclick="addPayday()">Добавить</button></div>
+ <p class="mut">Например, 5 и 20. Платёж делится между зарплатами, которые приходятся на период до его срока.</p></div>`}
+function addPayday(){const d=+val('pdDay');if(!(d>=1&&d<=31))return alert('День от 1 до 31');S.paydays=(S.paydays||[]).filter(p=>p.day!==d);S.paydays.push({day:d,name:val('pdName').trim()});S.paydays.sort((a,b)=>a.day-b.day);SAL.date='';save();render()}
+function delPayday(i){S.paydays.splice(i,1);SAL.date='';save();render()}
+// Быстрый ввод (виджет и ярлыки на иконке)
+function quickAdd(type){NT={type:type||'expense',cat:'',sum:'',note:'',date:today(),acc:'',to:''};S.tab='ops';render();scrollTo(0,0);
+ setTimeout(()=>{const f=document.getElementById('tSum');if(f)f.focus()},120)}
 
-V.set=()=>`<div class="card"><h2>Оформление</h2><div class="theme">${[['auto','Как в системе'],['light','Светлая'],['dark','Тёмная']].map(([k,t])=>`<button class="${(S.theme||'auto')===k?'b':'s'}" onclick="setTheme('${k}')">${t}</button>`).join('')}</div><p class="mut">Вкладки переключаются свайпом влево и вправо или стрелками в шапке.</p></div>${['expense','income'].map(k=>`<div class="card"><h2>Категории ${k==='expense'?'расходов':'доходов'}</h2>
+V.set=()=>`<div class="card"><h2>Оформление</h2><div class="theme">${[['auto','Как в системе'],['light','Светлая'],['dark','Тёмная']].map(([k,t])=>`<button class="${(S.theme||'auto')===k?'b':'s'}" onclick="setTheme('${k}')">${t}</button>`).join('')}</div><p class="mut">Вкладки переключаются свайпом влево и вправо или стрелками в шапке.</p></div>${paydayCard()}${['expense','income'].map(k=>`<div class="card"><h2>Категории ${k==='expense'?'расходов':'доходов'}</h2>
  <p>${S.cats[k].map((c,i)=>`<button class="s" style="margin:2px" onclick="renCat('${k}',${i})">${esc(c)}</button>`).join('')}</p>
  <div class="row"><input id="nc_${k}" placeholder="Новая категория"><button class="b" onclick="addCat('${k}')">Добавить</button></div><p class="mut">Нажмите на категорию, чтобы переименовать или удалить.</p></div>`).join('')}
  <div class="card"><h2>Резервная копия</h2><p class="mut">Данные хранятся в этом браузере. Регулярно сохраняйте копию.</p>
@@ -491,6 +535,7 @@ async function exportData(){const name='finance-'+today()+'.json',txt=JSON.strin
 function importData(inp){const f=inp.files[0];if(!f)return;f.text().then(t=>{try{S=Object.assign(structuredClone(def),JSON.parse(t));save();render();toast('Данные загружены','ok')}catch(e){alert('Неверный файл')}})}
 
 accrue();render();
+{const q=new URLSearchParams(location.search).get('quick');if(q)quickAdd(q)}
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(r=>r.update());let rl;navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!rl){rl=1;location.reload()}})}
 </script>
 </body>

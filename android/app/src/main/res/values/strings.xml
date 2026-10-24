@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_desc">Быстрая запись расхода или дохода</string>
+    <string name="sc_expense">Расход</string>
+    <string name="sc_income">Доход</string>
+    <string name="sc_transfer">Перевод</string>
+</resources>

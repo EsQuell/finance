@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.net.Uri;
 import android.os.Bundle;
@@ -26,6 +27,8 @@ public class MainActivity extends Activity {
     private static final int PICK_FILE = 1;
     private WebView web;
     private FrameLayout root;
+    private String pendingQuick;
+    private boolean pageReady;
 
     // Цвет строки состояния и навигации под тему приложения
     private void applyBars(boolean dark) {
@@ -57,7 +60,14 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         web.addJavascriptInterface(new Bridge(), "AndroidApp");
+        pendingQuick = getIntent().getStringExtra("quick");
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView v, String url) {
+                pageReady = true;
+                runQuick();
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, String url) {
                 if (url.startsWith(URL)) return false;
@@ -75,6 +85,27 @@ public class MainActivity extends Activity {
             }
         });
         if (saved != null) web.restoreState(saved); else web.loadUrl(URL);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        pendingQuick = intent.getStringExtra("quick");
+        if (pageReady) runQuick();
+    }
+
+    // Открыть форму быстрой записи и показать клавиатуру
+    private void runQuick() {
+        if (pendingQuick == null) return;
+        String t = pendingQuick.matches("expense|income|transfer") ? pendingQuick : "";
+        pendingQuick = null;
+        if (t.isEmpty()) return;
+        web.evaluateJavascript("window.quickAdd&&quickAdd('" + t + "')", null);
+        web.postDelayed(() -> {
+            web.requestFocus();
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(web, InputMethodManager.SHOW_IMPLICIT);
+        }, 350);
     }
 
     @Override

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:gravity="center_vertical"
+    android:background="@drawable/w_bg" android:padding="8dp">
+    <ImageView android:id="@+id/open" android:layout_width="40dp" android:layout_height="40dp"
+        android:src="@mipmap/ic_launcher" android:layout_marginEnd="6dp" android:contentDescription="Открыть" />
+    <TextView android:id="@+id/btn_expense" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1.4" android:background="@drawable/w_out" android:gravity="center"
+        android:text="− Расход" android:textColor="#FFFFFF" android:textSize="15sp" android:textStyle="bold"
+        android:minHeight="44dp" android:layout_marginEnd="6dp" />
+    <TextView android:id="@+id/btn_income" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:background="@drawable/w_in" android:gravity="center"
+        android:text="+ Доход" android:textColor="#FFFFFF" android:textSize="15sp" android:textStyle="bold"
+        android:minHeight="44dp" android:layout_marginEnd="6dp" />
+    <TextView android:id="@+id/btn_transfer" android:layout_width="48dp" android:layout_height="match_parent"
+        android:background="@drawable/w_tr" android:gravity="center"
+        android:text="⇄" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold"
+        android:minHeight="44dp" />
+</LinearLayout>

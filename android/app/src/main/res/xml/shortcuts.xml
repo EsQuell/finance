@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="expense" android:enabled="true" android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_expense">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.esquell.finance"
+            android:targetClass="com.esquell.finance.MainActivity"><extra android:name="quick" android:value="expense" /></intent>
+    </shortcut>
+    <shortcut android:shortcutId="income" android:enabled="true" android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_income">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.esquell.finance"
+            android:targetClass="com.esquell.finance.MainActivity"><extra android:name="quick" android:value="income" /></intent>
+    </shortcut>
+    <shortcut android:shortcutId="transfer" android:enabled="true" android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_transfer">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.esquell.finance"
+            android:targetClass="com.esquell.finance.MainActivity"><extra android:name="quick" android:value="transfer" /></intent>
+    </shortcut>
+</shortcuts>
